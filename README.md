@@ -1,7 +1,15 @@
-<p align="center">
-  <b>openivr</b><br>
-  <i>self-hosted IVR for Asterisk - shell installer, web builder, async ARI core</i>
-</p>
+<h1 align="center">
+<pre align="center">
+ ██████╗ ██████╗ ███████╗███╗   ██╗      ██╗██╗   ██╗██████╗ 
+██╔═══██╗██╔══██╗██╔════╝████╗  ██║      ██║██║   ██║██╔══██╗
+██║   ██║██████╔╝█████╗  ██╔██╗ ██║█████╗██║██║   ██║██████╔╝
+██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║╚════╝██║╚██╗ ██╔╝██╔══██╗
+╚██████╔╝██║     ███████╗██║ ╚████║      ██║ ╚████╔╝ ██║  ██║
+ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝      ╚═╝  ╚═══╝  ╚═╝  ╚═╝
+</pre>
+  <b><i>self-hosted IVR for Asterisk</i></b><br>
+  <i>shell installer &middot; web builder &middot; async ARI core</i>
+</h1>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"></a>
