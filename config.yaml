@@ -1,0 +1,116 @@
+# ------------------------------------------------------------------
+# open-ivr main configuration
+#
+# Values are merged in this order (later wins):
+#   defaults in code -> config.yaml -> system.json (root, written by
+#   system/ scripts) -> data/smtp.json (written by builder) -> OPENIVR_* env
+#
+# Anything the installer collected (SIP trunk, DB, ports, SMTP) lives in
+# ./system.json; keep machine specific secrets there, not here.
+# ------------------------------------------------------------------
+
+app:
+  name: openivr
+  # Stasis app name; must match what the dialplan uses: Stasis(openivr)
+  stasis_app: openivr
+  # Delay after Answer() before the first prompt (let the far end settle)
+  answer_delay: 0.4
+
+ari:
+  # Built by system/ steps/30-ari.sh into system.json normally;
+  # these are the fallback defaults for a fresh local run.
+  base_url: http://127.0.0.1:8088
+  username: openivr
+  password: "peakboo"
+  # Reconnect backoff (seconds), doubles up to max
+  reconnect_initial: 2
+  reconnect_max: 60
+
+paths:
+  project_root: "."
+  flows: data/flows
+  flow_file: data/ivr_flow.json
+  sounds: data/sounds
+  recordings: data/recordings
+  logs: data/logs
+  # Asterisk spool where ARI recordings land (chan recording / channel.record)
+  asterisk_spool: /var/spool/asterisk/recording
+  # Where run_ivr.sh syncs data/sounds so sound:<name> resolves
+  asterisk_sounds: /var/lib/asterisk/sounds/custom
+
+logging:
+  level: INFO
+  file: data/logs/openivr.log
+  max_bytes: 4194304
+  backup_count: 5
+  console: true
+  color: true
+  # log format pieces
+  format: "%(asctime)s | %(levelname)-8s | %(name)s | %(module)s:%(lineno)d | %(message)s"
+  datefmt: "%Y-%m-%d %H:%M:%S"
+
+ivr:
+  # global menu behaviour (menus can override per-menu)
+  prompt_timeout: 8          # seconds to wait for the first digit
+  invalid_attempts: 2        # invalid-digit retries before fail action
+  timeout_attempts: 2        # prompt-timeout retries before fail action
+  max_menu_depth: 3          # flow validation refuses deeper nesting
+  max_options_per_menu: 5    # plan: 5 keys per menu, 2-3 levels max
+  interdigit_timeout: 4      # seconds between digits while collecting
+  # hangup tone/announcement before we release the channel
+  goodbye_prompt: goodbye
+
+dial:
+  # dialplan = pass the channel to the dialplan (clean CDR, plan default)
+  # originate = ARI originate a leg + bridge (uses openivr.originate)
+  mode: dialplan
+  context: openivr-dial
+  extension: s
+  priority: 1
+  # originate options (only used when mode: originate)
+  originate_endpoint: ""
+  originate_timeout: 30
+  dial_timeout: 45
+
+voicemail:
+  enabled: true
+  dir: data/recordings/voicemail
+  format: wav
+  max_duration: 120         # seconds hard cap
+  silence_timeout: 4        # seconds of silence that ends the message
+  beep: true
+  terminate_on: any         # any DTMF ends recording (Asterisk terminateOn)
+  min_duration: 1
+
+cdr:
+  enabled: true
+  backend: csv              # csv | postgres | both
+  csv_file: data/logs/cdr.csv
+  # postgres (backend: postgres/both); user/pass also via OPENIVR_DB_* env
+  postgres:
+    host: 127.0.0.1
+    port: 5432
+    dbname: ivrdb
+    user: ivr
+    password: ""
+
+smtp:
+  enabled: false            # set true once data/smtp.json exists (builder)
+  host: ""
+  port: 587
+  starttls: true
+  username: ""
+  password: ""
+  from_addr: ""
+  # recipients for service-down / system alerts
+  alerts_to: []
+
+record:
+  # MixMonitor leg recording is configured in dialplan (system/asterisk);
+  # this toggles ARI-side recording of the IVR leg itself
+  ivr_leg: false
+  dir: data/recordings/ivr
+
+health:
+  # interval for the background keep-alive / status log line (seconds)
+  interval: 30

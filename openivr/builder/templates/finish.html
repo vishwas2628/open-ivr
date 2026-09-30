@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}openivr finish{% endblock %}
+{% block content %}
+<section>
+  <h2>Final check</h2>
+  {% if ok %}<p class="good">{{ ok }}</p>{% endif %}
+  {% if errors %}
+    <p class="bad">{{ errors|length }} problem(s):</p>
+    <ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    <p><a class="button" href="/build">Back to the builder</a>
+       <a class="button" href="/media">Back to media</a></p>
+  {% else %}
+    <p class="good">Flow is valid: {{ menus|length }} menu(s),
+      {{ draft.get('welcome') or 'no welcome prompt' }},
+      {{ files|length }} prompt file(s).</p>
+    <ul class="summary">
+      <li>start menu: <code>{{ draft.start_menu }}</code></li>
+      {% for name, m in draft.menus.items() %}
+        <li><code>{{ name }}</code>: {{ m.options|length }} option(s), timeout {{ m.timeout.seconds }}s</li>
+      {% endfor %}
+    </ul>
+    {% if voicemail and not smtp_ready %}
+      <p class="warn">Voicemail is enabled, so you will be asked for SMTP settings next.</p>
+    {% endif %}
+    <form method="post" action="/finish">
+      <button type="submit" class="primary">Save flow &amp; start the IVR</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

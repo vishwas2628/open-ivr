@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}openivr flow builder{% endblock %}
+{% block content %}
+
+{% if errors %}
+<div class="flash bad">
+  <strong>{{ errors|length }} problem(s) to fix:</strong>
+  <ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<section class="menubar">
+  <h2>Menus</h2>
+  <nav class="menu-tabs">
+    {% for name in names %}
+      <a class="tab {% if name == current %}active{% endif %}" href="/build?menu={{ name }}">{{ name }}</a>
+    {% endfor %}
+  </nav>
+  <form method="post" action="/build/menu/add" class="inline-form">
+    <input type="text" name="name" placeholder="new menu name" required>
+    <select name="copy_from">
+      <option value="">(copy nothing)</option>
+      {% for name in names %}<option value="{{ name }}">copy settings from {{ name }}</option>{% endfor %}
+    </select>
+    <input type="text" name="prompt" placeholder="prompt file name">
+    <button type="submit">Add menu</button>
+  </form>
+  <form method="post" action="/build/menu/delete" class="inline-form">
+    <input type="hidden" name="menu" value="{{ current }}">
+    <button type="submit" class="danger" {% if names|length < 2 %}disabled{% endif %}>Delete &ldquo;{{ current }}&rdquo;</button>
+  </form>
+</section>
+
+<form method="post" action="/build/save">
+  <input type="hidden" name="current_menu" value="{{ current }}">
+
+  <section>
+    <h2>Call settings</h2>
+    <div class="grid">
+      <label>Start menu
+        <select name="start_menu">
+          {% for name in names %}<option value="{{ name }}" {% if draft.start_menu == name %}selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Welcome prompt
+        <input list="prompt-list" name="welcome" value="{{ draft.welcome or '' }}" placeholder="welcome">
+      </label>
+      <label>Goodbye prompt
+        <input list="prompt-list" name="goodbye" value="{{ draft.goodbye or '' }}" placeholder="goodbye">
+      </label>
+    </div>
+    <datalist id="prompt-list">
+      {% for s in sounds %}<option value="{{ s }}">{% endfor %}
+    </datalist>
+    {% if sounds|length == 0 %}
+      <p class="warn">No prompt files found yet - <a href="/media">upload audio first</a>.
+         Prompts without audio still save, but callers will hear nothing.</p>
+    {% endif %}
+  </section>
+
+  {% for name in names %}
+  <section class="menu-card">
+    <h2>Menu &ldquo;{{ name }}&rdquo;</h2>
+    <input type="hidden" name="menu__{{ name }}" value="1">
+    <div class="grid">
+      <label>Menu prompt
+        <input list="prompt-list" name="prompt__{{ name }}" value="{{ menu.prompt if name == current else '' }}">
+      </label>
+      <label>Timeout (seconds)
+        <input type="number" step="1" min="1" name="timeout_seconds__{{ name }}"
+               value="{{ menu.timeout.seconds if name == current else 8 }}">
+      </label>
+      <label>Timeout retries
+        <input type="number" min="0" name="timeout_retries__{{ name }}"
+               value="{{ menu.timeout.max_retries if name == current else 1 }}">
+      </label>
+      <label>Timeout prompt
+        <input list="prompt-list" name="timeout_prompt__{{ name }}"
+               value="{{ menu.timeout.prompt if name == current else 'timeout-msg' }}">
+      </label>
+      <label>Invalid-digit retries
+        <input type="number" min="0" name="invalid_retries__{{ name }}"
+               value="{{ menu.invalid.max_retries if name == current else 1 }}">
+      </label>
+      <label>Invalid-digit prompt
+        <input list="prompt-list" name="invalid_prompt__{{ name }}"
+               value="{{ menu.invalid.prompt if name == current else 'invalid-msg' }}">
+      </label>
+      <label>After retries are used up
+        <select name="fail_action__{{ name }}">
+          {% for act in ['hangup', 'submenu', 'dial'] %}
+            <option value="{{ act }}" {% if name == current and menu.timeout.fail_action and menu.timeout.fail_action.action == act %}selected{% endif %}>{{ act }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Fail target menu / endpoint
+        <input name="fail_target__{{ name }}" value="{{ menu.timeout.fail_action.target if name == current and menu.timeout.fail_action else '' }}"
+               placeholder="support  or  PJSIP/1000">
+      </label>
+      <input type="hidden" name="fail_endpoint__{{ name }}" value="{{ menu.timeout.fail_action.endpoint if name == current and menu.timeout.fail_action else '' }}">
+    </div>
+
+    <h3>Options</h3>
+    <p class="muted">At most {{ config.ivr.max_options_per_menu }} keys per menu, at most
+      {{ config.ivr.max_menu_depth }} levels deep.</p>
+    <table class="options">
+      <thead>
+        <tr>
+          <th>on</th><th>key</th><th>label</th><th>action</th>
+          <th>endpoint / target</th><th>extra</th><th>then</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for digit in digits %}
+        {% set opt = (menu.options.get(digit) if name == current else None) or {} %}
+        <tr class="{% if name == current and digit in menu.options %}on{% else %}off{% endif %}">
+          <td class="c-on">
+            <input type="checkbox" name="enabled__{{ digit }}__{{ name }}" value="1"
+                   {% if name == current and digit in menu.options %}checked{% endif %}>
+          </td>
+          <td class="c-key"><code>{{ digit }}</code></td>
+          <td><input name="label__{{ digit }}__{{ name }}" value="{{ opt.get('label', '') if opt else '' }}"
+                     placeholder="Sales"></td>
+          <td>
+            <select name="action__{{ digit }}__{{ name }}">
+              {% for act in actions %}
+                <option value="{{ act }}" {% if opt and opt.get('action') == act %}selected{% endif %}>{{ act }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <input name="endpoint__{{ digit }}__{{ name }}" value="{{ opt.get('endpoint', '') if opt else '' }}"
+                   placeholder="PJSIP/1001">
+            <input name="target__{{ digit }}__{{ name }}" value="{{ opt.get('target', '') if opt else '' }}"
+                   placeholder="submenu target">
+            <input name="after_hours_menu__{{ digit }}__{{ name }}"
+                   value="{{ opt.get('after_hours_menu', '') if opt else '' }}" placeholder="after-hours menu">
+          </td>
+          <td>
+            <input list="prompt-list" name="prompt__{{ digit }}__{{ name }}" value="{{ opt.get('prompt', '') if opt else '' }}"
+                   placeholder="prompt">
+            <input name="mailbox__{{ digit }}__{{ name }}" value="{{ opt.get('mailbox', '') if opt else '' }}"
+                   placeholder="mailbox">
+            <input list="prompt-list" name="greeting__{{ digit }}__{{ name }}" value="{{ opt.get('greeting', '') if opt else '' }}"
+                   placeholder="voicemail greeting">
+            <input name="variable__{{ digit }}__{{ name }}" value="{{ opt.get('variable', '') if opt else '' }}"
+                   placeholder="variable name">
+            <span class="pair">
+              <input type="number" min="1" name="min_digits__{{ digit }}__{{ name }}"
+                     value="{{ opt.get('min_digits', 1) if opt else 1 }}" placeholder="min">
+              <input type="number" min="1" name="max_digits__{{ digit }}__{{ name }}"
+                     value="{{ opt.get('max_digits', 4) if opt else 4 }}" placeholder="max">
+            </span>
+          </td>
+          <td>
+            <select name="after_action__{{ digit }}__{{ name }}">
+              {% for act in ['hangup', 'submenu', 'dial'] %}
+                <option value="{{ act }}" {% if opt and opt.get('after', {}).get('action', 'hangup') == act %}selected{% endif %}>{{ act }}</option>
+              {% endfor %}
+            </select>
+            <input name="after_target__{{ digit }}__{{ name }}"
+                   value="{{ opt.get('after', {}).get('target', '') if opt else '' }}" placeholder="target menu">
+            <select name="next_action__{{ digit }}__{{ name }}">
+              {% for act in ['hangup', 'submenu', 'dial'] %}
+                <option value="{{ act }}" {% if opt and opt.get('next', {}).get('action', 'hangup') == act %}selected{% endif %}>{{ act }}</option>
+              {% endfor %}
+            </select>
+            <input name="next_target__{{ digit }}__{{ name }}"
+                   value="{{ opt.get('next', {}).get('target', '') if opt else '' }}" placeholder="next target">
+            <input name="next_endpoint__{{ digit }}__{{ name }}"
+                   value="{{ opt.get('next', {}).get('endpoint', '') if opt else '' }}" placeholder="next endpoint">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+
+  {% if time_route %}
+  <section>
+    <h2>Business hours routing</h2>
+    <div class="grid">
+      <label>Prompt before after-hours menu
+        <input list="prompt-list" name="tr_prompt" value="{{ time_route.get('prompt', '') }}">
+      </label>
+      <label>Timezone
+        <input name="tr_timezone" value="{{ time_route.get('timezone', 'UTC') }}" placeholder="Asia/Kolkata">
+      </label>
+      <label>Business-hours menu
+        <input name="tr_business" value="{{ time_route.get('business_menu', '') }}">
+      </label>
+      <label>After-hours menu
+        <input name="tr_after_hours" value="{{ time_route.get('after_hours_menu', '') }}">
+      </label>
+    </div>
+    <p class="muted">Schedule (edit <code>data/ivr_flow.json</code>):
+      <code>"hours": {"mon": ["09:00-18:00"], ..., "sun": []}</code></p>
+  </section>
+  {% endif %}
+
+  <div class="actions">
+    <button type="submit" class="primary">Save &amp; validate</button>
+    <a class="button" href="/finish">Continue to finish</a>
+  </div>
+</form>
+{% endblock %}

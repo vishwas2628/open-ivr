@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}openivr done{% endblock %}
+{% block content %}
+<section class="done">
+  <h2>All set</h2>
+  <p class="good">{{ message }}</p>
+  <p>Next steps:</p>
+  <ol>
+    <li>Prompts were synced into Asterisk's sounds folder by
+        <code>run_ivr.sh</code> (step 3).</li>
+    <li>The IVR service starts under systemd - check it with
+        <code>systemctl status open-ivr</code>.</li>
+    <li>Follow <code>journalctl -u open-ivr -f</code> or
+        <code>tail -f data/logs/openivr.log</code> while you place a test call.</li>
+    <li>CDR rows land in <code>data/logs/cdr.csv</code>.</li>
+  </ol>
+  <p>You can close this browser window.</p>
+</section>
+{% endblock %}

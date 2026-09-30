@@ -1,0 +1,34 @@
+[Unit]
+Description=openivr - IVR core (Asterisk ARI / asyncari)
+Documentation=file:///opt/openivr/docs/index.md
+After=network-online.target asterisk.service postgresql.service
+Wants=network-online.target
+Requires=asterisk.service
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+WorkingDirectory=/opt/openivr
+Environment=PYTHONUNBUFFERED=1
+Environment=OPENIVR_ROOT=/opt/openivr
+Environment=OPENIVR_LOG_LEVEL=INFO
+EnvironmentFile=-/opt/openivr/.env
+ExecStartPre=/opt/openivr/.venv/bin/python -m openivr verify || /bin/true
+ExecStart=/opt/openivr/.venv/bin/python -m openivr run
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openivr
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/openivr/data
+
+[Install]
+WantedBy=multi-user.target

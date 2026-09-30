@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}openivr builder{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1><a href="/">openivr</a> <span class="sub">IVR builder</span></h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/build">Flow builder</a>
+    <a href="/media">Media</a>
+    <a href="/smtp">SMTP</a>
+    <a href="/finish">Finish</a>
+  </nav>
+</header>
+<main>
+  {% if request.query_params.get('ok') %}<div class="flash ok">{{ request.query_params.get('ok') }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer>
+  <p>root <code>{{ root }}</code> &middot; ARI {{ config.ari.base_url }} &middot;
+     dial mode <code>{{ config.dial.mode }}</code> &middot; CDR <code>{{ config.cdr.backend }}</code>{% if keep_open %} &middot;
+     <strong>keep-open</strong>{% endif %}</p>
+</footer>
+</body>
+</html>

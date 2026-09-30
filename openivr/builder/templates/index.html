@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% macro node(n) %}
+<ul class="tree">
+  {% for c in n.children %}
+    <li><code>{{ c.digit }}</code> &rarr; <strong>{{ c.action }}</strong>
+      {% if c.label %}<span class="muted">({{ c.label }})</span>{% endif %}
+      {% if c.children %}{{ node(c) }}{% endif %}
+    </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+{% block title %}openivr dashboard{% endblock %}
+{% block content %}
+<section class="cards">
+  <div class="card">
+    <h2>1. Flow</h2>
+    {% if errors %}
+      <p class="bad">{{ errors|length }} validation problem(s):</p>
+      <ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% else %}
+      <p class="good">{{ menus|length }} menu(s): {% for m in menus %}<code>{{ m }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+    <a class="button" href="/build">Open the flow builder</a>
+  </div>
+  <div class="card">
+    <h2>2. Media</h2>
+    <p>{{ files|length }} prompt file(s) in <code>{{ config.paths.sounds }}</code></p>
+    {% if not files %}<p class="warn">No audio yet. Upload <code>.wav</code> files (8&nbsp;kHz / 16&nbsp;kHz mono).</p>{% endif %}
+    <a class="button" href="/media">Upload prompts</a>
+  </div>
+  <div class="card">
+    <h2>3. SMTP</h2>
+    {% if smtp %}
+      <p class="good">Configured: <code>{{ smtp.get('host', '?') }}</code>
+         {% if not smtp.get('enabled') %}(disabled){% endif %}</p>
+    {% elif voicemail %}
+      <p class="warn">Voicemail is enabled and no mail settings exist yet.</p>
+    {% else %}
+      <p>Voicemail is disabled, SMTP is optional.</p>
+    {% endif %}
+    <a class="button" href="/smtp">Mail settings</a>
+  </div>
+  <div class="card">
+    <h2>4. Start</h2>
+    <p>Validates everything, asks for SMTP, then stops the builder so
+       <code>run_ivr.sh</code> can start the IVR service.</p>
+    <a class="button primary" href="/finish">Validate &amp; finish</a>
+  </div>
+</section>
+
+{% if tree %}
+<section>
+  <h2>Flow tree</h2>
+  <p class="muted">start menu: <code>{{ tree.name }}</code></p>
+  {{ node(tree) }}
+</section>
+{% endif %}
+{% endblock %}

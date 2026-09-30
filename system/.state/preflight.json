@@ -1,0 +1,1 @@
+{ "step": "preflight", "data": {"os": "ubuntu", "os_version": "24.04", "arch": "x86_64", "pkg_manager": "apt", "python": "Python 3.12.3", "checked_at": "2026-09-30T23:47:10+05:30"} }
