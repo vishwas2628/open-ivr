@@ -1,11 +1,16 @@
-"""Outgoing calls: ARI originate + bridge.
+"""Outgoing calls: ARI originate + bridge (LEGACY).
+
+.. warning::
+   This module is LEGACY. The supported outbound path is
+   ``dial.mode: dialplan`` which uses ``channel.continueInDialplan()`` into the
+   ``[openivr-dial]`` context (see extensions.conf). This module is retained as
+   a fallback and for the ``openivr originate --to ...`` CLI escape hatch.
 
 ``plan.md`` prefers handing a ``dial`` action to the dialplan so the CDR stays
 clean (``dial.mode: dialplan``).  This module implements the alternative:
 ``dial.mode: originate`` – originate a second leg into our own Stasis app and
 bridge it against the inbound channel.  It is also used by the CLI
-``openivr originate --to PJSIP/1001`` helper and by the builder's "call a
-number" test button.
+``openivr originate --to PJSIP/1001`` helper.
 """
 
 from __future__ import annotations

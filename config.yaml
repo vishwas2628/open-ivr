@@ -15,6 +15,9 @@ app:
   stasis_app: openivr
   # Delay after Answer() before the first prompt (let the far end settle)
   answer_delay: 0.4
+  # Default accountcode for CDR when ARI does not supply one. The dialplan
+  # uses {{company_id}} from the builder; this is the fallback.
+  company_id: openivr
 
 ari:
   # Built by system/ steps/30-ari.sh into system.json normally;
@@ -61,13 +64,15 @@ ivr:
   goodbye_prompt: goodbye
 
 dial:
-  # dialplan = pass the channel to the dialplan (clean CDR, plan default)
-  # originate = ARI originate a leg + bridge (uses openivr.originate)
+  # dialplan = pass the channel to the dialplan via continueInDialplan()
+  #            into [openivr-dial] (clean CDR, plan default)
+  # originate = LEGACY: ARI originate a leg + bridge (uses openivr.originate)
+  #             retained only for the CLI escape hatch
   mode: dialplan
   context: openivr-dial
   extension: s
   priority: 1
-  # originate options (only used when mode: originate)
+  # originate options (only used when mode: originate - LEGACY)
   originate_endpoint: ""
   originate_timeout: 30
   dial_timeout: 45
@@ -84,9 +89,13 @@ voicemail:
 
 cdr:
   enabled: true
-  backend: csv              # csv | postgres | both
+  # csv = IVR event log only (menu/digit/timing). The CALL RECORD comes from
+  # Asterisk's native CDR engine (cdr.conf [csv] backend). postgres/both
+  # removed - use Asterisk cdr.conf for call logs.
+  backend: csv              # csv | none
   csv_file: data/logs/cdr.csv
-  # postgres (backend: postgres/both); user/pass also via OPENIVR_DB_* env
+  # postgres section retained for 60-database.sh schema provisioning only.
+  # openivr no longer writes CDRs to Postgres.
   postgres:
     host: 127.0.0.1
     port: 5432

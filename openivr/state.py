@@ -311,6 +311,7 @@ class IVRState(ToplevelChannelState, DTMFHandler):
             "OPENIVR_CALL_ID": self.rec.call_id,
             "OPENIVR_DIGITS": ",".join(self.rec.digits),
             "OPENIVR_MENU": self._menu_name,
+            "OPENIVR_ACCOUNTCODE": getattr(self.cfg.app, "company_id", "openivr"),
         }
 
     async def _handoff_to_dialplan(self, endpoint: str) -> None:
@@ -321,6 +322,7 @@ class IVRState(ToplevelChannelState, DTMFHandler):
             await ch.setChannelVar(variable="OPENIVR_DIAL_TARGET", value=endpoint)
             await ch.setChannelVar(variable="OPENIVR_CALL_ID", value=self.rec.call_id)
             await ch.setChannelVar(variable="OPENIVR_MENU", value=self._menu_name)
+            await ch.setChannelVar(variable="OPENIVR_ACCOUNTCODE", value=getattr(self.cfg.app, "company_id", "openivr"))
             if self.rec.digits:
                 await ch.setChannelVar(variable="OPENIVR_DIGITS", value=",".join(self.rec.digits))
             await ch.continueInDialplan(

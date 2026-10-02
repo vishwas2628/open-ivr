@@ -1,4 +1,4 @@
-"""CDR records: shape, CSV output and backend degradation."""
+"""IVR event log: shape, CSV output, UNIQUEID keying."""
 
 from __future__ import annotations
 
@@ -44,6 +44,15 @@ def test_summary_includes_duration() -> None:
 
 def test_empty_record_has_no_rows() -> None:
     assert CallRecord().rows() == []
+
+
+def test_call_id_is_uniquedid_not_uuid(cfg) -> None:
+    """CallRecord.call_id should be set from Asterisk UNIQUEID (passed in)."""
+    record = CallRecord(call_id="test-uniqueid-123", channel_id="test-uniqueid-123")
+    assert record.call_id == "test-uniqueid-123"
+    assert record.channel_id == "test-uniqueid-123"
+    # Not a uuid4 hex
+    assert len(record.call_id) != 16 or "-" in record.call_id
 
 
 def test_writer_creates_header_once(cfg) -> None:
@@ -100,78 +109,19 @@ async def test_none_backend(cfg) -> None:
     assert writer.backend == "none"
 
 
-def test_postgres_without_driver_falls_back(cfg, caplog) -> None:
+async def test_invalid_backend_defaults_to_csv(cfg) -> None:
+    """postgres/both are removed - should fall back to csv."""
+    cfg.cdr.backend = "postgres"
+    writer = CdrWriter(cfg)
+    assert writer.backend == "csv"
+
     cfg.cdr.backend = "both"
-    cfg.cdr.csv_file = "data/logs/cdr.csv"
     writer = CdrWriter(cfg)
-    try:
-        import psycopg  # noqa: F401
-    except ImportError:
-        assert writer.backend == "csv"
-        assert writer._pg_pool is None
-        assert Path(cfg.path("data/logs/cdr.csv")).exists()
-    else:  # pragma: no cover - only when the optional extra is installed
-        assert writer.backend == "both"
+    assert writer.backend == "csv"
 
-
-def test_pg_insert_uses_json_adapters(monkeypatch: pytest.MonkeyPatch, cfg) -> None:
-    """Guard the psycopg parameter types without needing a database."""
-    executed: dict[str, list] = {}
-
-    class FakeCursor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def execute(self, sql, params):
-            executed["sql"] = sql
-            executed["params"] = params
-
-    class FakeConn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def cursor(self):
-            return FakeCursor()
-
-    class FakeJson:
-        def __init__(self, value):
-            self.value = value
-
-    class FakePsycopg:
-        @staticmethod
-        def connect(dsn, autocommit=False):
-            executed["dsn"] = dsn
-            return FakeConn()
-
+    cfg.cdr.backend = "unknown"
     writer = CdrWriter(cfg)
-    writer.backend = "postgres"
-    writer._pg_pool = (FakePsycopg, "dsn", FakeJson)
-    record = make_record()
-    writer._write_pg(record)
-
-    params = executed["params"]
-    assert isinstance(params[8], FakeJson) and params[8].value == {"acct": "1234"}
-    assert isinstance(params[9], FakeJson) and params[9].value == record.events
-    assert params[7] == "1,2"
-    assert "INSERT INTO cdr" in executed["sql"]
-
-
-def test_pg_errors_are_logged_not_raised(cfg) -> None:
-    class BrokenPsycopg:
-        @staticmethod
-        def connect(*_a, **_kw):
-            raise RuntimeError("no server")
-
-    writer = CdrWriter(cfg)
-    writer.backend = "postgres"
-    writer._pg_pool = (BrokenPsycopg, "dsn", None)
-    writer._write_pg(make_record())  # must not raise
+    assert writer.backend == "csv"
 
 
 async def test_write_skips_empty_records(cfg) -> None:

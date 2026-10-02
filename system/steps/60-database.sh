@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# 60 - optional PostgreSQL CDR backend (CSV is the default)
+# 60 - optional PostgreSQL (for Realtime config / schema reservation)
+# CDR is handled by Asterisk's native cdr.conf [csv] backend.
+# The cdr table below is RESERVED / UNUSED by openivr - Asterisk CSV is the
+# authoritative call log. This table exists for future Realtime config use.
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-step "Database (optional PostgreSQL CDR)"
+step "Database (optional PostgreSQL - reserved schema)"
 
-if [ "$(ask_yes_no "Install PostgreSQL for the cdr table?" "n")" != "y" ]; then
-  info "keeping the CSV CDR backend (cdr.backend: csv) - nothing to do"
+if [ "$(ask_yes_no "Install PostgreSQL for Realtime schema reservation?" "n")" != "y" ]; then
+  info "PostgreSQL skipped - CSV CDR backend (cdr.conf) is the default"
   write_step "database" '{"cdr": {"enabled": true, "backend": "csv"}}'
   return 0 2>/dev/null || exit 0
 fi
@@ -37,6 +40,8 @@ CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
 SQL
 
 SCHEMA=$(cat <<'SQL'
+-- RESERVED / UNUSED by openivr. Asterisk cdr.conf [csv] is the call log.
+-- This table exists only for potential future Realtime config storage.
 CREATE TABLE IF NOT EXISTS cdr (
     id          bigserial PRIMARY KEY,
     call_id     text NOT NULL,
@@ -59,8 +64,9 @@ PGPASSWORD="${DB_PASS}" "${PG_BIN}" -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USE
   -c "${SCHEMA}" >/dev/null 2>&1 || warn "schema creation failed (check permissions)"
 
 ok "PostgreSQL ${DB_NAME} ready on ${DB_HOST}:${DB_PORT} (user ${DB_USER})"
-info "set cdr.backend: both  (or postgres) in config.yaml to write there as well as the CSV"
+info "cdr table created (RESERVED - openivr uses Asterisk cdr.conf CSV backend)"
 
 # The shape must match config.CdrCfg: cdr.postgres.{host,port,dbname,user,password}
-write_step "database" "$(printf '{"cdr": {"enabled": true, "backend": "both", "postgres": {"host": "%s", "port": %s, "dbname": "%s", "user": "%s", "password": "%s"}}}' \
+# cdr.backend stays "csv" - Postgres is not used for CDR writing.
+write_step "database" "$(printf '{"cdr": {"enabled": true, "backend": "csv", "postgres": {"host": "%s", "port": %s, "dbname": "%s", "user": "%s", "password": "%s"}}}' \
   "${DB_HOST}" "${DB_PORT}" "${DB_NAME}" "${DB_USER}" "${DB_PASS}")"

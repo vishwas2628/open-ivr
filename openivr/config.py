@@ -41,6 +41,7 @@ class AppCfg:
     stasis_app: str = "openivr"
     answer_delay: float = 0.4
     max_call_seconds: float = 3600.0
+    company_id: str = "openivr"
 
 
 @dataclass(slots=True)
@@ -404,8 +405,8 @@ def load_config(
 def _validate(cfg: Config) -> None:
     if cfg.dial.mode not in {"dialplan", "originate"}:
         raise ConfigError(f"dial.mode must be 'dialplan' or 'originate', got {cfg.dial.mode!r}")
-    if cfg.cdr.backend not in {"csv", "postgres", "both", "none"}:
-        raise ConfigError(f"cdr.backend must be csv|postgres|both|none, got {cfg.cdr.backend!r}")
+    if cfg.cdr.backend not in {"csv", "none"}:
+        raise ConfigError(f"cdr.backend must be 'csv' or 'none' (postgres/both removed - use Asterisk cdr.conf), got {cfg.cdr.backend!r}")
     if cfg.voicemail.terminate_on not in {"none", "any", "*", "#"}:
         raise ConfigError(
             f"voicemail.terminate_on must be none|any|*|#, got {cfg.voicemail.terminate_on!r}"
@@ -416,5 +417,4 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("ivr.max_menu_depth must be >= 1")
     if cfg.smtp.enabled and not cfg.smtp.host:
         raise ConfigError("smtp.enabled is true but smtp.host is empty")
-    if cfg.cdr.backend in {"postgres", "both"} and not cfg.cdr.postgres.dbname:
-        raise ConfigError("cdr.backend needs cdr.postgres.dbname")
+    # cdr.postgres retained for schema provisioning (60-database.sh) but not used by openivr
