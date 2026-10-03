@@ -14,8 +14,12 @@
     <div class="panel-sunken p-4 text-left text-xs space-y-2">
       <div class="step-eyebrow">Deployment Report</div>
       <div><strong>Target:</strong> <code>{{ publish_info.get('dest') }}</code></div>
+      <div><strong>Staging:</strong> <code>{{ publish_info.get('staging') }}</code></div>
       <div><strong>Files:</strong> {{ (publish_info.get('files') or [])|join(', ') }}</div>
       <div><strong>Reload:</strong> {{ publish_info.get('reload_detail') }}</div>
+      {% if publish_info.get('copy_error') %}
+      <div class="notice-box">Could not deploy with the builder user: {{ publish_info.get('copy_error') }}</div>
+      {% endif %}
     </div>
     {% endif %}
     <div class="flex flex-wrap justify-center gap-3 pt-2">

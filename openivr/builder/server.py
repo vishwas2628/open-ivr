@@ -27,7 +27,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import Config, SmtpCfg, load_config
-from ..flow import Flow
 from ..media import AUDIO_SUFFIXES, available_sounds, check_prompt_name, list_sound_files
 from ..notify import Notifier
 from .providers import catalog_public, countries, provider_by_id, providers
@@ -493,6 +492,7 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             menu_names = ["main"]
 
         menus: dict[str, Any] = {}
+        duplicate_dtmf_errors: list[str] = []
         for mname in menu_names:
             mprompt = str(form.get(f"menu_prompt__{mname}") or "").strip()
             dtmf_options: dict[str, Any] = {}
@@ -509,6 +509,9 @@ def create_app(root: str | Path | None = None) -> FastAPI:
                 if not dkey or dkey not in DTMF_KEYS:
                     continue
                 if dkey in dtmf_options:
+                    duplicate_dtmf_errors.append(
+                        f"Menu {mname!r}: DTMF key {dkey!r} is used more than once"
+                    )
                     continue
                 action = str(form.get(f"dtmf_action__{idx}__{mname}") or "hangup").strip()
                 desc = str(form.get(f"dtmf_description__{idx}__{mname}") or "").strip()
@@ -569,7 +572,7 @@ def create_app(root: str | Path | None = None) -> FastAPI:
 
         extensions = load_extensions(root_path)
         ext_numbers = [str(e.get("number", "")) for e in extensions]
-        errors = validate_ivr_document(ivr_data, ext_numbers)
+        errors = validate_ivr_document(ivr_data, ext_numbers) + duplicate_dtmf_errors
         if errors:
             return render(
                 request,
@@ -586,12 +589,6 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             )
 
         save_ivr(root_path, ivr_data)
-        # Also sync runtime flow file for ARI runtime/testing
-        try:
-            cfg = load_config(root_path)
-            Flow.from_dict(ivr_data).save(cfg.flow_path)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Could not sync Flow runtime copy: %s", exc)
 
         return RedirectResponse("/smtp?ok=Dialplan+configuration+saved", status_code=303)
 
@@ -802,6 +799,22 @@ def create_app(root: str | Path | None = None) -> FastAPI:
 
         result = publish(root_path)
         progress = load_progress(root_path)
+        if result.get("copy_error"):
+            progress["published"] = False
+            progress["publish_needed"] = True
+            save_progress(root_path, progress)
+            if "application/json" in request.headers.get("accept", ""):
+                return JSONResponse(result, status_code=207)
+            return render(
+                request,
+                "done.html",
+                {
+                    "message": "Configuration was generated but could not be copied to Asterisk.",
+                    "publish_info": result,
+                },
+                status=207,
+            )
+
         progress["published"] = True
         progress["publish_needed"] = False
         save_progress(root_path, progress)

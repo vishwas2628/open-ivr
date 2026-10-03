@@ -32,3 +32,4 @@ plan.md
 data/*
 !data/.gitkeep
 temp
+.state/

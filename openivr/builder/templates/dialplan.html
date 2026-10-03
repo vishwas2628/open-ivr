@@ -219,17 +219,28 @@ function showMenu(name) {
   if (b) b.classList.remove('hidden');
   if (t) t.classList.add('active');
 }
+function setActionFieldVisibility(el, visible) {
+  el.classList.toggle('hidden', !visible);
+  const customWrapper = el._customDropdown ? el._customDropdown.wrapper : null;
+  if (customWrapper) customWrapper.classList.toggle('hidden', !visible);
+}
 function toggleActionFields(sel) {
   const row = sel.closest('tr');
-  row.querySelectorAll('.action-field').forEach(el => el.classList.add('hidden'));
+  row.querySelectorAll('.action-field').forEach(el => setActionFieldVisibility(el, false));
   const a = sel.value;
-  if (a === 'dial') row.querySelector('.action-dial')?.classList.remove('hidden');
-  if (a === 'submenu' || a === 'parent') row.querySelector('.action-submenu')?.classList.remove('hidden');
-  if (a === 'voicemail') row.querySelector('.action-voicemail')?.classList.remove('hidden');
+  if (a === 'dial') { const el = row.querySelector('.action-dial'); if (el) setActionFieldVisibility(el, true); }
+  if (a === 'submenu' || a === 'parent') { const el = row.querySelector('.action-submenu'); if (el) setActionFieldVisibility(el, true); }
+  if (a === 'voicemail') { const el = row.querySelector('.action-voicemail'); if (el) setActionFieldVisibility(el, true); }
 }
+document.addEventListener('change', (e) => {
+  if (e.target.matches('select[name^="dtmf_key__"]')) {
+    refreshUniqueDtmfKeys(e.target.closest('tbody'));
+  }
+});
 document.addEventListener('DOMContentLoaded', () => {
   const s = document.querySelector('select[name="start_menu"]');
   if (s && s.value) showMenu(s.value);
+  document.querySelectorAll('tbody[data-menu-body]').forEach(refreshUniqueDtmfKeys);
 });
 
 async function pickPrompt(btn) {
@@ -260,6 +271,29 @@ async function pickPrompt(btn) {
   input.click();
 }
 
+function refreshUniqueDtmfKeys(tbody) {
+  if (!tbody) return;
+  const selects = Array.from(tbody.querySelectorAll('select[name^="dtmf_key__"]'));
+  if (!selects.length) return;
+  const used = new Set();
+  selects.forEach((sel) => {
+    let value = sel.value;
+    if (!value || used.has(value)) {
+      const next = Array.from(sel.options).find(option => option.value && !used.has(option.value));
+      if (next) {
+        sel.value = next.value;
+        value = next.value;
+      }
+    }
+    if (value) used.add(value);
+  });
+  selects.forEach((sel) => {
+    Array.from(sel.options).forEach((option) => {
+      option.disabled = used.has(option.value) && option.value !== sel.value;
+    });
+    if (sel._customDropdown) sel._customDropdown.sync();
+  });
+}
 function reindexMenuRows(menu) {
   const tbody = document.querySelector('tbody[data-menu-body="'+menu+'"]');
   if (!tbody) return;
@@ -268,6 +302,7 @@ function reindexMenuRows(menu) {
       el.name = el.name.replace(/__\d+__/, '__' + i + '__');
     });
   });
+  refreshUniqueDtmfKeys(tbody);
 }
 
 function addDtmfRow(menu) {
@@ -296,6 +331,8 @@ function addDtmfRow(menu) {
     </td>
     <td><button type="button" onclick="this.closest('tr').remove(); reindexMenuRows('${menu}')" class="btn-danger-subtle">X</button></td>`;
   tbody.appendChild(tr);
+  tr.querySelectorAll('select').forEach(selectEl => initCustomDropdown(selectEl));
+  refreshUniqueDtmfKeys(tbody);
   const sel = tr.querySelector('select[name^="dtmf_action__"]');
   if (sel) toggleActionFields(sel);
 }

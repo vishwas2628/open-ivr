@@ -106,6 +106,7 @@ function addExtension() {
     + '<div><label class="field-label">Assigned Endpoints *</label><div class="panel-sunken p-3 space-y-2 max-h-44 overflow-y-auto">' + userRows() + '</div>'
     + '<input type="hidden" name="ext_users_' + idx + '" class="users-hidden" value=""></div>';
   c.appendChild(div);
+  initCustomDropdown(div.querySelector('select'));
 }
 function moveUser(btn, dir) {
   const row = btn.closest('.user-row');

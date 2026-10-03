@@ -12,7 +12,7 @@
 app:
   name: openivr
   # Stasis app name; must match what the dialplan uses: Stasis(openivr)
-  stasis_app: openivr
+  stasis_app: appari
   # Delay after Answer() before the first prompt (let the far end settle)
   answer_delay: 0.4
   # Default accountcode for CDR when ARI does not supply one. The dialplan
@@ -23,7 +23,7 @@ ari:
   # Built by system/ steps/30-ari.sh into system.json normally;
   # these are the fallback defaults for a fresh local run.
   base_url: http://127.0.0.1:8088
-  username: openivr
+  username: appari
   password: "peakboo"
   # Reconnect backoff (seconds), doubles up to max
   reconnect_initial: 2

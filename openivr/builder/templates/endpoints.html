@@ -73,6 +73,16 @@
 
 <script>
 let rowSeq = document.querySelectorAll('.endpoint-row').length;
+document.addEventListener('input', (e) => {
+  if (e.target.matches('input[name="username"], input[name="password"]')) {
+    e.target.value = e.target.value.replace(/\s+/g, '');
+  }
+});
+document.querySelector('form[action="/endpoints"]').addEventListener('submit', () => {
+  document.querySelectorAll('input[name="username"], input[name="password"]').forEach((input) => {
+    input.value = input.value.replace(/\s+/g, '');
+  });
+});
 function updateCount() {
   document.getElementById('endpoint-count').textContent = document.querySelectorAll('.endpoint-row').length + ' / 50';
 }
@@ -89,7 +99,7 @@ function addRow() {
   const n = document.querySelectorAll('.endpoint-row').length + 1;
   const tr = document.createElement('tr');
   tr.className = 'endpoint-row';
-  tr.innerHTML = '<td><input type="text" name="username" required placeholder="100' + n + '" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}" class="form-input-sm font-mono"></td>'
+  tr.innerHTML = '<td><input type="text" name="username" required placeholder="user' + n + '" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}" class="form-input-sm font-mono"></td>'
     + '<td><div class="relative"><input type="password" id="pw_' + rowSeq + '" name="password" required placeholder="Secret" class="form-input-sm has-control font-mono">'
     + '<button type="button" class="password-toggle-btn" onclick="togglePassword(this, \'pw_' + rowSeq + '\')">Show</button></div></td>'
     + '<td><input type="text" name="display_name" placeholder="Agent ' + n + '" class="form-input-sm"></td>'
@@ -97,6 +107,7 @@ function addRow() {
     + '<td class="text-center"><button type="button" onclick="this.closest(\'tr\').remove(); updateCount();" class="btn-danger-subtle">X</button></td>';
   tbody.appendChild(tr);
   updateCount();
+  initCustomDropdown(tr.querySelector('select'));
 }
 if (document.querySelectorAll('.endpoint-row').length === 0) { addRow(); }
 </script>
