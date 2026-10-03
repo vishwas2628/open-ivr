@@ -27,13 +27,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import Config, SmtpCfg, load_config
-from ..flow import Flow, FlowError
+from ..flow import Flow
 from ..media import AUDIO_SUFFIXES, available_sounds, check_prompt_name, list_sound_files
 from ..notify import Notifier
-from .defaults import default_ivr_document
 from .providers import catalog_public, countries, provider_by_id, providers
 from .publish import publish
-from .render import render_all
 from .session import (
     DIALPLAN_ACTIONS,
     DTMF_KEYS,
@@ -224,6 +222,7 @@ def create_app(root: str | Path | None = None) -> FastAPI:
         provider_id = str(form.get("provider_id") or "").strip()
         host_fqdn = str(form.get("host_fqdn") or "").strip()
         transport = str(form.get("transport") or "transport-udp").strip()
+        signaling_port = str(form.get("signaling_port") or "5060").strip()
         auth_type = str(form.get("auth_type") or "").strip()
         match_raw = str(form.get("match_ips") or "").strip()
         match_ips = [line.strip() for line in match_raw.splitlines() if line.strip()]
@@ -241,6 +240,8 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             auth_type = provider.get("auth_type", "registration")
         if not match_ips and provider:
             match_ips = list(provider.get("match") or [])
+        if not signaling_port and provider:
+            signaling_port = str(provider.get("signaling_port") or "5060")
 
         # Auto-complete registration_uri if username and host_fqdn are supplied
         if auth_type == "registration" and not fields.get("registration_uri"):
@@ -255,7 +256,9 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             "auth_type": auth_type or "registration",
             "host_fqdn": host_fqdn,
             "transport": transport,
+            "signaling_port": signaling_port,
             "match": match_ips,
+            "direction": (provider or {}).get("direction", ""),
             "fields": fields,
         }
 
@@ -493,26 +496,38 @@ def create_app(root: str | Path | None = None) -> FastAPI:
         for mname in menu_names:
             mprompt = str(form.get(f"menu_prompt__{mname}") or "").strip()
             dtmf_options: dict[str, Any] = {}
-            for dkey in DTMF_KEYS:
-                if form.get(f"dtmf_enabled__{dkey}__{mname}"):
-                    action = str(form.get(f"dtmf_action__{dkey}__{mname}") or "hangup").strip()
-                    desc = str(form.get(f"dtmf_description__{dkey}__{mname}") or "").strip()
-                    opt: dict[str, Any] = {"description": desc, "action": action}
-                    if action == "dial":
-                        ep = str(form.get(f"dtmf_endpoint__{dkey}__{mname}") or "").strip()
-                        # Per plan, no pjsip/ prefix
-                        ep = ep.replace("PJSIP/", "").replace("pjsip/", "")
-                        opt["endpoint"] = ep
-                    elif action in {"submenu", "parent"}:
-                        opt["target"] = str(
-                            form.get(f"dtmf_target__{dkey}__{mname}") or ""
-                        ).strip()
-                    elif action == "voicemail":
-                        opt["mailbox"] = (
-                            str(form.get(f"dtmf_mailbox__{dkey}__{mname}") or "").strip()
-                            or "default"
-                        )
-                    dtmf_options[dkey] = opt
+            row_indexes = sorted(
+                {
+                    k.split("__", 2)[1]
+                    for k in form.keys()
+                    if k.startswith("dtmf_key__") and k.endswith(f"__{mname}")
+                },
+                key=lambda v: int(v) if v.isdigit() else 0,
+            )
+            for idx in row_indexes:
+                dkey = str(form.get(f"dtmf_key__{idx}__{mname}") or "").strip()
+                if not dkey or dkey not in DTMF_KEYS:
+                    continue
+                if dkey in dtmf_options:
+                    continue
+                action = str(form.get(f"dtmf_action__{idx}__{mname}") or "hangup").strip()
+                desc = str(form.get(f"dtmf_description__{idx}__{mname}") or "").strip()
+                opt: dict[str, Any] = {"description": desc, "action": action}
+                if action == "dial":
+                    ep = str(form.get(f"dtmf_endpoint__{idx}__{mname}") or "").strip()
+                    # Per plan, no pjsip/ prefix
+                    ep = ep.replace("PJSIP/", "").replace("pjsip/", "")
+                    opt["endpoint"] = ep
+                elif action in {"submenu", "parent"}:
+                    opt["target"] = (
+                        form.get(f"dtmf_target__{idx}__{mname}") or ""
+                    ).strip()
+                elif action == "voicemail":
+                    opt["mailbox"] = (
+                        str(form.get(f"dtmf_mailbox__{idx}__{mname}") or "").strip()
+                        or "default"
+                    )
+                dtmf_options[dkey] = opt
             menus[mname] = {
                 "menu_prompt": mprompt,
                 "dtmf_options": dtmf_options,
@@ -841,23 +856,27 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             return denied
         form = await request.form()
         upload: UploadFile | None = form.get("file")  # type: ignore[assignment]
+        wants_json = "application/json" in request.headers.get("accept", "")
+
+        def _fail(msg: str) -> Any:
+            if wants_json:
+                return JSONResponse({"ok": False, "error": msg}, status_code=400)
+            return RedirectResponse(f"/media?err={msg}", status_code=303)
+
         if upload is None or not upload.filename:
-            return RedirectResponse("/media?err=Choose+an+audio+file+first", status_code=303)
+            return _fail("Choose an audio file first")
 
         original = Path(upload.filename).name
         suffix = Path(original).suffix.lower()
         if suffix not in AUDIO_SUFFIXES:
-            return RedirectResponse(
-                f"/media?err=Unsupported+audio+format+{suffix}+allowed:+{', '.join(sorted(AUDIO_SUFFIXES))}",
-                status_code=303,
-            )
+            return _fail(f"Unsupported audio format {suffix}")
 
         # Plan specifies snake_case naming for audio uploads
         stem = snake_case_stem(original)
         name = f"{stem}{suffix}"
         problem = check_prompt_name(name)
         if problem:
-            return RedirectResponse(f"/media?err={problem}", status_code=303)
+            return _fail(problem)
 
         cfg = load_config(root_path)
         cfg.sounds_dir.mkdir(parents=True, exist_ok=True)
@@ -877,11 +896,14 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             tmp.replace(target)
         except ValueError as exc:
             tmp.unlink(missing_ok=True)
-            return RedirectResponse(f"/media?err={exc}", status_code=303)
+            return _fail(str(exc))
         finally:
             await upload.close()
 
         log.info("Builder saved prompt %s (%d bytes)", name, size)
+        prompt = Path(name).stem if suffix == ".wav" else name
+        if wants_json:
+            return JSONResponse({"ok": True, "name": name, "prompt": prompt, "size": size})
         return RedirectResponse(f"/media?ok=Stored+{name}+({size:,}+bytes)", status_code=303)
 
     @app.post("/media/delete")

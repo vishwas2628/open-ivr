@@ -4,8 +4,6 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <h1 class="page-title text-4xl">OpenIVR</h1>
-    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
     <div class="step-eyebrow pt-2">Step 2 of 6 — Endpoints</div>
     <p class="text-sm text-black max-w-2xl mx-auto">Device accounts for softphones and desk phones (up to 50 users).</p>
   </div>
@@ -23,7 +21,7 @@
     <div class="panel-card p-6 space-y-4">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="section-title">Endpoint Accounts</h2>
-        <span id="endpoint-count" class="badge badge-dark">{{ endpoints|length }} / 50</span>
+        <span id="endpoint-count" class="badge badge-dark" data-count="{{ endpoints|length }}">{{ endpoints|length }} / 50</span>
       </div>
       <div class="table-container">
         <table class="data-table">
@@ -74,7 +72,7 @@
 </div>
 
 <script>
-let rowSeq = {{ endpoints|length }};
+let rowSeq = document.querySelectorAll('.endpoint-row').length;
 function updateCount() {
   document.getElementById('endpoint-count').textContent = document.querySelectorAll('.endpoint-row').length + ' / 50';
 }

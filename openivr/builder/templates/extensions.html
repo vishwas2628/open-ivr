@@ -4,8 +4,6 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <h1 class="page-title text-4xl">OpenIVR</h1>
-    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
     <div class="step-eyebrow pt-2">Step 3 of 6 — Extensions</div>
     <p class="text-sm text-black max-w-2xl mx-auto">Map internal numbers to endpoints. Single, hunt, or ring-all.</p>
   </div>
@@ -82,9 +80,10 @@
   </form>
 </div>
 
+<script type="application/json" id="all-users-data">{{ (endpoints | map(attribute='username') | list) | tojson if endpoints else '[]' }}</script>
 <script>
-const allUsers = {{ (endpoints | map(attribute='username') | list) | tojson if endpoints else '[]' }};
-let extIdx = {{ extensions|length }};
+const allUsers = JSON.parse(document.getElementById('all-users-data').textContent || '[]');
+let extIdx = document.querySelectorAll('.ext-card').length;
 function userRows() {
   return allUsers.map(u =>
     '<div class="user-row flex items-center justify-between gap-2 p-2 bg-white" style="border:2px solid #000;border-radius:6px;">'

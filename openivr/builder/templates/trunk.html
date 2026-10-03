@@ -4,8 +4,6 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <h1 class="page-title text-4xl">OpenIVR</h1>
-    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
     <div class="step-eyebrow pt-2">Step 1 of 6 — Trunk Configuration</div>
     <p class="text-sm text-black max-w-2xl mx-auto">
       Connect Asterisk to your carrier for incoming and outgoing calls.
@@ -21,7 +19,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/trunk" class="space-y-6 max-w-2xl mx-auto">
+  <form method="post" action="/trunk" id="trunk-form" data-auth="{{ trunk.get('auth_type', '') }}" class="space-y-6 max-w-2xl mx-auto">
 
     <div class="panel-card p-6 space-y-5">
       <div class="space-y-1">
@@ -40,7 +38,7 @@
         </div>
         <div>
           <label for="provider_id" class="field-label">SIP Provider *</label>
-          <select id="provider_id" name="provider_id" onchange="showProviderInfo()" required class="form-select">
+          <select id="provider_id" name="provider_id" data-saved="{{ trunk.get('provider_id', '') }}" onchange="showProviderInfo()" required class="form-select">
             <option value="">-- Select SIP Provider --</option>
           </select>
         </div>
@@ -63,27 +61,39 @@
     <div class="panel-card p-6 space-y-5">
       <div class="space-y-1">
         <h2 class="section-title">Authentication Method</h2>
-        <p class="field-help">How your PBX authenticates with the carrier.</p>
+        <p class="field-help">Choose how SIP authentication is performed. Use the method your provider assigns.</p>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div id="card-auth-reg" onclick="selectAuthMode('registration')"
              class="auth-card {% if trunk.get('auth_type','registration') == 'registration' %}selected{% endif %}">
           <div class="flex items-start justify-between gap-3">
             <div class="space-y-1">
-              <div class="font-bold text-sm">Registration-based</div>
-              <p class="text-xs leading-relaxed">Username + password with periodic SIP REGISTER. Common for cloud trunks.</p>
+              <div class="font-bold text-sm">Register-based</div>
+              <p class="text-xs leading-relaxed">Your PBX sends SIP REGISTER with username/password. Used only by providers that require registration.</p>
             </div>
             <div class="radio-indicator"></div>
           </div>
           <input type="radio" id="auth_type_reg" name="auth_type" value="registration"
                  {% if trunk.get('auth_type','registration') == 'registration' %}checked{% endif %} class="hidden">
         </div>
+        <div id="card-auth-cred" onclick="selectAuthMode('credentials')"
+             class="auth-card {% if trunk.get('auth_type') == 'credentials' %}selected{% endif %}">
+          <div class="flex items-start justify-between gap-3">
+            <div class="space-y-1">
+              <div class="font-bold text-sm">SIP Credentials</div>
+              <p class="text-xs leading-relaxed">Username/password SIP digest authentication. Typical for Plivo Zentrunk outbound.</p>
+            </div>
+            <div class="radio-indicator"></div>
+          </div>
+          <input type="radio" id="auth_type_cred" name="auth_type" value="credentials"
+                 {% if trunk.get('auth_type') == 'credentials' %}checked{% endif %} class="hidden">
+        </div>
         <div id="card-auth-ip" onclick="selectAuthMode('ip')"
              class="auth-card {% if trunk.get('auth_type') == 'ip' %}selected{% endif %}">
           <div class="flex items-start justify-between gap-3">
             <div class="space-y-1">
-              <div class="font-bold text-sm">IP-based</div>
-              <p class="text-xs leading-relaxed">Static IP whitelist. Traffic accepted from carrier signaling IPs.</p>
+              <div class="font-bold text-sm">IP Authentication / ACL</div>
+              <p class="text-xs leading-relaxed">Allow traffic only from the provider's SIP signalling IPs. Common for inbound origination.</p>
             </div>
             <div class="radio-indicator"></div>
           </div>
@@ -98,27 +108,29 @@
         <h2 class="section-title">Connection Settings</h2>
         <p class="field-help">SIP registrar endpoint and transport.</p>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div>
-          <label for="host_fqdn" class="field-label">Host / Registrar *</label>
+          <label for="host_fqdn" class="field-label">SIP Host / FQDN URI *</label>
           <input type="text" id="host_fqdn" name="host_fqdn" value="{{ trunk.get('host_fqdn', '') }}"
                  placeholder="sip.carrier.com" required class="form-input">
         </div>
         <div>
           <label for="transport" class="field-label">Transport</label>
-          <select id="transport" name="transport" class="form-select" onchange="updateTransportDesc()">
-            <option value="transport-udp" {% if trunk.get('transport','transport-udp') == 'transport-udp' %}selected{% endif %}>UDP (Default)</option>
+          <select id="transport" name="transport" class="form-select" onchange="syncSignalingPort()">
+            <option value="transport-udp" {% if trunk.get('transport','transport-udp') == 'transport-udp' %}selected{% endif %}>UDP</option>
             <option value="transport-tcp" {% if trunk.get('transport') == 'transport-tcp' %}selected{% endif %}>TCP</option>
           </select>
-          <p id="transport-desc" class="field-help">UDP on port 5060.</p>
+          <p id="transport-desc" class="field-help">Use UDP over signaling port 5060 unless your provider requires TCP.</p>
+        </div>
+        <div>
+          <label for="signaling_port" class="field-label">Signaling Port *</label>
+          <input type="number" id="signaling_port" name="signaling_port" min="1" max="65535" value="{{ trunk.get('signaling_port', '5060') }}" required class="form-input">
+          <p class="field-help">Standard SIP uses 5060 for UDP/TCP and 5061 for TLS.</p>
         </div>
       </div>
-      <div id="registration-fields-wrapper" class="space-y-4">
-        <h3 class="text-xs font-bold uppercase">Authentication Credentials</h3>
-        <div id="provider-fields" class="grid grid-cols-1 md:grid-cols-2 gap-5"></div>
-      </div>
+      <div id="provider-fields" class="grid grid-cols-1 md:grid-cols-2 gap-5"></div>
       <div id="ip-match-wrapper" class="space-y-2">
-        <label for="match_ips" class="field-label">Permitted Signaling IPs (one per line)</label>
+        <label for="match_ips" class="field-label">Allowed Signalling IPs / CIDRs (one per line)</label>
         <textarea id="match_ips" name="match_ips" rows="3" placeholder="192.0.2.0/24" class="font-mono text-xs">{{ (trunk.get('match') or []) | join('\n') }}</textarea>
       </div>
     </div>
@@ -129,9 +141,13 @@
   </form>
 </div>
 
+<script type="application/json" id="catalog-data">{{ catalog | tojson }}</script>
+<script type="application/json" id="saved-fields-data">{{ (trunk.get('fields', {}) or {}) | tojson }}</script>
 <script>
-const catalog = {{ catalog | tojson }};
-const savedFields = {{ (trunk.get('fields', {}) or {}) | tojson }};
+const catalog = JSON.parse(document.getElementById('catalog-data').textContent || '{"providers":[]}');
+const savedFields = JSON.parse(document.getElementById('saved-fields-data').textContent || '{}');
+const savedProviderId = document.getElementById('provider_id').dataset.saved || '';
+const savedAuthType = document.getElementById('trunk-form').dataset.auth || '';
 
 function filterProviders() {
   const country = document.getElementById('country').value;
@@ -142,7 +158,7 @@ function filterProviders() {
       const opt = document.createElement('option');
       opt.value = p.id;
       opt.textContent = p.name;
-      if ('{{ trunk.get("provider_id","") }}' === p.id) opt.selected = true;
+      if (savedProviderId === p.id) opt.selected = true;
       sel.appendChild(opt);
     }
   });
@@ -151,15 +167,16 @@ function filterProviders() {
 
 function selectAuthMode(mode) {
   document.getElementById('auth_type_reg').checked = (mode === 'registration');
+  document.getElementById('auth_type_cred').checked = (mode === 'credentials');
   document.getElementById('auth_type_ip').checked = (mode === 'ip');
   document.getElementById('card-auth-reg').classList.toggle('selected', mode === 'registration');
+  document.getElementById('card-auth-cred').classList.toggle('selected', mode === 'credentials');
   document.getElementById('card-auth-ip').classList.toggle('selected', mode === 'ip');
   updateAuthFieldVisibility();
 }
 
 function updateAuthFieldVisibility() {
-  const isReg = document.getElementById('auth_type_reg').checked;
-  document.getElementById('registration-fields-wrapper').style.display = isReg ? '' : 'none';
+  document.getElementById('ip-match-wrapper').style.display = '';
 }
 
 function togglePasswordMask(btn, inputId) {
@@ -197,12 +214,80 @@ function showProviderInfo() {
   fields.innerHTML = '';
   (provider.fields || []).forEach(f => {
     const div = document.createElement('div');
+    if (f.type === 'choice') {
+      div.className = 'md:col-span-2';
+      const legend = document.createElement('div');
+      legend.className = 'field-label';
+      legend.textContent = f.label + (f.required ? ' *' : '');
+      div.appendChild(legend);
+      const choiceGrid = document.createElement('div');
+      choiceGrid.className = 'grid grid-cols-1 md:grid-cols-2 gap-4';
+      const selectedChoice = savedFields[f.id] || provider.examples?.[f.id] || f.default || '';
+      (f.options || []).forEach((opt, index) => {
+        const value = typeof opt === 'string' ? opt : opt.value;
+        const labelText = typeof opt === 'string' ? opt : (opt.label || opt.value);
+        const helpText = typeof opt === 'object' ? opt.help : '';
+        const card = document.createElement('label');
+        const cardIsSelected = selectedChoice === value || (!selectedChoice && index === 0);
+        card.className = 'auth-card block cursor-pointer' + (cardIsSelected ? ' selected' : '');
+        card.innerHTML = '<div class="flex items-start justify-between gap-3"><div class="space-y-1"><div class="font-bold text-sm"></div>' +
+          (helpText ? '<p class="text-xs leading-relaxed"></p>' : '') +
+          '</div><div class="radio-indicator"></div></div>';
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'field__' + f.id;
+        input.value = value;
+        input.checked = selectedChoice === value || (!selectedChoice && index === 0);
+        input.className = 'hidden';
+        if (f.required && index === 0) input.required = true;
+        input.addEventListener('change', () => {
+          choiceGrid.querySelectorAll('.auth-card').forEach(el => el.classList.remove('selected'));
+          card.classList.add('selected');
+        });
+        card.querySelector('.font-bold').textContent = labelText;
+        const help = card.querySelector('p');
+        if (help) help.textContent = helpText;
+        card.appendChild(input);
+        choiceGrid.appendChild(card);
+      });
+      div.appendChild(choiceGrid);
+      if (f.help) {
+        const help = document.createElement('p');
+        help.className = 'field-help'; help.textContent = f.help;
+        div.appendChild(help);
+      }
+      fields.appendChild(div);
+      return;
+    }
     const inputId = 'input_field__' + f.id;
     const label = document.createElement('label');
     label.className = 'field-label'; label.htmlFor = inputId;
     label.textContent = f.label + (f.required ? ' *' : '');
     div.appendChild(label);
     const wrap = document.createElement('div');
+    if (f.type === 'select') {
+      div.appendChild(label);
+      const select = document.createElement('select');
+      select.name = 'field__' + f.id; select.id = inputId;
+      select.className = 'form-select';
+      (f.options || []).forEach(opt => {
+        const value = typeof opt === 'string' ? opt : opt.value;
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = typeof opt === 'string' ? opt : (opt.label || opt.value);
+        if ((savedFields[f.id] || provider.examples?.[f.id] || f.default || '') === value) option.selected = true;
+        select.appendChild(option);
+      });
+      if (f.required) select.required = true;
+      div.appendChild(select);
+      if (f.help) {
+        const help = document.createElement('p');
+        help.className = 'field-help'; help.textContent = f.help;
+        div.appendChild(help);
+      }
+      fields.appendChild(div);
+      return;
+    }
     wrap.className = f.type === 'password' ? 'relative' : '';
     const input = document.createElement('input');
     input.type = f.type || 'text';
@@ -230,10 +315,25 @@ function showProviderInfo() {
   if (!document.getElementById('host_fqdn').value && provider.host_fqdn) {
     document.getElementById('host_fqdn').value = provider.host_fqdn;
   }
+  document.getElementById('host_fqdn').placeholder = provider.host_placeholder || 'sip.carrier.com';
+  if (!document.getElementById('signaling_port').value && provider.signaling_port) {
+    document.getElementById('signaling_port').value = provider.signaling_port;
+  }
   if (!document.getElementById('match_ips').value && provider.match) {
     document.getElementById('match_ips').value = provider.match.join('\n');
   }
-  if (!'{{ trunk.get("auth_type", "") }}' && provider.auth_type) {
+  const allowedAuthModes = provider.auth_options || ['registration', 'credentials', 'ip'];
+  [
+    ['registration', 'card-auth-reg'],
+    ['credentials', 'card-auth-cred'],
+    ['ip', 'card-auth-ip'],
+  ].forEach(([mode, cardId]) => {
+    const card = document.getElementById(cardId);
+    if (card) card.style.display = allowedAuthModes.includes(mode) ? '' : 'none';
+  });
+  if (savedAuthType && allowedAuthModes.includes(savedAuthType)) {
+    selectAuthMode(savedAuthType);
+  } else if (provider.auth_type) {
     selectAuthMode(provider.auth_type);
   } else {
     updateAuthFieldVisibility();
@@ -243,13 +343,19 @@ function showProviderInfo() {
 function updateTransportDesc() {
   const val = document.getElementById('transport').value;
   document.getElementById('transport-desc').textContent =
-    val === 'transport-tcp' ? 'TCP transport; use if UDP fragments.' : 'UDP on port 5060.';
+    val === 'transport-tcp' ? 'Use TCP over signaling port 5060 if UDP is blocked or unreliable.' : 'Use UDP over signaling port 5060 unless your provider requires TCP.';
+}
+
+function syncSignalingPort() {
+  updateTransportDesc();
+  const port = document.getElementById('signaling_port');
+  if (port && !port.value) { port.value = '5060'; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   filterProviders();
   updateAuthFieldVisibility();
-  updateTransportDesc();
+  syncSignalingPort();
 });
 </script>
 {% endblock %}

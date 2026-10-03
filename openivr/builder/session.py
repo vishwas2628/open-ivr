@@ -174,11 +174,21 @@ def validate_trunk(data: dict[str, Any], provider: dict[str, Any] | None) -> lis
     host = str(data.get("host_fqdn") or values.get("host_fqdn") or provider.get("host_fqdn") or "").strip()
     if not host:
         errors.append("Host / registrar FQDN is required")
+    port = str(data.get("signaling_port") or provider.get("signaling_port") or "5060").strip()
+    if not port.isdigit() or not (1 <= int(port) <= 65535):
+        errors.append("Signaling port must be a number between 1 and 65535")
+    elif provider.get("signaling_port") and port != str(provider.get("signaling_port")):
+        errors.append(f"Signaling port must be {provider.get('signaling_port')} for this provider")
     auth = data.get("auth_type") or provider.get("auth_type")
     if auth == "registration" or provider.get("registration_uri_required"):
         uri = str(values.get("registration_uri") or data.get("registration_uri") or "").strip()
         if not uri:
             errors.append("Registration URI is required for this provider")
+    if auth in ("registration", "credentials"):
+        if not str(values.get("username") or data.get("username") or "").strip():
+            errors.append("SIP username is required for this authentication method")
+        if not str(values.get("password") or data.get("password") or "").strip():
+            errors.append("SIP password is required for this authentication method")
     return errors
 
 

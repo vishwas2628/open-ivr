@@ -205,10 +205,10 @@ def test_dialplan_workflow(client: TestClient, project: Path) -> None:
         "start_menu": "main",
         "menu_exists__main": "1",
         "menu_prompt__main": "sounds/main_menu",
-        "dtmf_enabled__1__main": "1",
-        "dtmf_description__1__main": "Support",
-        "dtmf_action__1__main": "dial",
-        "dtmf_endpoint__1__main": "1001",
+        "dtmf_key__0__main": "1",
+        "dtmf_description__0__main": "Support",
+        "dtmf_action__0__main": "dial",
+        "dtmf_endpoint__0__main": "1001",
     }
     response = client.post("/dialplan", data=form, follow_redirects=False)
     assert response.status_code == 303

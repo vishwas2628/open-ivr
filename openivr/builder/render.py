@@ -64,20 +64,30 @@ def render_trunk(trunk: dict[str, Any], skeleton: Path | None = None) -> str:
     name = trunk_name(trunk)
     fields = trunk.get("fields") if isinstance(trunk.get("fields"), dict) else {}
     host = str(trunk.get("host_fqdn") or fields.get("host_fqdn") or "").strip()
+    host = re.sub(r"^sips?:(?://)?", "", host, flags=re.IGNORECASE).strip("/")
     username = str(fields.get("username") or trunk.get("username") or "").strip()
     password = str(fields.get("password") or trunk.get("password") or "").strip()
     client_uri = str(fields.get("registration_uri") or trunk.get("registration_uri") or "").strip()
     if client_uri and not client_uri.lower().startswith("sip:"):
         client_uri = f"sip:{client_uri}"
-    if not client_uri and username and host:
-        client_uri = f"sip:{username}@{host}"
     transport = str(trunk.get("transport") or "transport-udp")
+    signaling_port = str(trunk.get("signaling_port") or "5060").strip() or "5060"
+    proto = "tcp" if transport.endswith("tcp") else "udp"
+    has_port = ":" in host.rsplit("/", 1)[-1] and host.rsplit(":", 1)[-1].isdigit()
+    host_with_port = host if has_port else f"{host}:{signaling_port}"
+    if not client_uri and username and host:
+        client_uri = f"sip:{username}@{host_with_port}"
+    elif client_uri and re.match(r"sip:[^@]+@[^/;:]+(;|$)", client_uri, re.IGNORECASE):
+        client_uri = re.sub(r"(sip:[^@]+@[^/;:]+)", rf"\1:{signaling_port}", client_uri, count=1, flags=re.IGNORECASE)
+    if client_uri and ";transport=" not in client_uri:
+        client_uri = f"{client_uri};transport={proto}"
     inbound = str(trunk.get("inbound_context") or "from-trunk")
     matches = [m for m in (trunk.get("match") or []) if str(m).strip()]
     mapping = {
         "trunk_username": username,
         "trunk_password": password,
         "host_fqdn": host,
+        "host_fqdn_with_port": host_with_port,
         "trunk_transport": transport,
         "inbound_context": inbound,
         "client_uri": client_uri,
@@ -87,7 +97,8 @@ def render_trunk(trunk: dict[str, Any], skeleton: Path | None = None) -> str:
     }
     body = fill_tokens(text, mapping).replace("TRUNK", name)
     extra = matches[3:]
-    if extra:
+    direction = str(trunk.get("direction") or "").strip().lower()
+    if extra and direction != "outbound":
         extra_lines = "\n".join(f"match = {cidr}" for cidr in extra)
         body = body.rstrip() + "\n" + extra_lines + "\n"
     # Drop empty match lines so Asterisk does not warn.
@@ -98,8 +109,23 @@ def render_trunk(trunk: dict[str, Any], skeleton: Path | None = None) -> str:
         cleaned.append(line)
     body = "".join(cleaned)
     auth_type = str(trunk.get("auth_type") or "registration")
-    if auth_type == "ip" and not str(fields.get("registration_uri") or "").strip():
+    if auth_type == "ip":
+        body = _drop_section(body, f"{name}-auth")
+        body = "".join(
+            line
+            for line in body.splitlines(True)
+            if line.strip() not in {f"outbound_auth = {name}-auth", f"auth = {name}-auth"}
+        )
+    if auth_type != "registration" or not str(client_uri).strip():
         body = _drop_section(body, f"{name}-reg")
+
+    if direction == "inbound":
+        body = _drop_section(body, f"{name}-aor")
+        body = _drop_section(body, f"{name}-out")
+        body = _drop_section(body, f"{name}-reg")
+    elif direction == "outbound":
+        body = _drop_section(body, f"{name}-in")
+        body = _drop_section(body, f"{name}-identify")
     return _header("trunk", name) + body
 
 

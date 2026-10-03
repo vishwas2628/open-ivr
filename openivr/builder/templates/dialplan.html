@@ -4,8 +4,6 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <h1 class="page-title text-4xl">OpenIVR</h1>
-    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
     <div class="step-eyebrow pt-2">Step 4 of 6 — Dialplan &amp; Menus</div>
     <p class="text-sm text-black max-w-2xl mx-auto">Greeting, timeouts, and keypad routing (0–9, *, #).</p>
   </div>
@@ -29,15 +27,27 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div>
           <label class="field-label">Welcome Prompt *</label>
-          <input type="text" name="welcome_prompt" list="sound-list" value="{{ ivr.get('welcome_prompt',{}).get('prompt','') if ivr.get('welcome_prompt') is mapping else '' }}" placeholder="sounds/welcome" required class="form-input">
+          <input type="hidden" name="welcome_prompt" value="{{ ivr.get('welcome_prompt',{}).get('prompt','') if ivr.get('welcome_prompt') is mapping else '' }}" required>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black">{{ ivr.get('welcome_prompt',{}).get('prompt','') if ivr.get('welcome_prompt') is mapping else '' }}</span>
+          </div>
         </div>
         <div>
           <label class="field-label">Invalid Key Prompt *</label>
-          <input type="text" name="invalid_prompt" list="sound-list" value="{{ ivr.get('invalid',{}).get('prompt','') }}" placeholder="sounds/invalid" required class="form-input">
+          <input type="hidden" name="invalid_prompt" value="{{ ivr.get('invalid',{}).get('prompt','') }}" required>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black">{{ ivr.get('invalid',{}).get('prompt','') }}</span>
+          </div>
         </div>
         <div>
           <label class="field-label">Timeout Prompt *</label>
-          <input type="text" name="timeout_prompt" list="sound-list" value="{{ ivr.get('timeout',{}).get('prompt','') }}" placeholder="sounds/no_input" required class="form-input">
+          <input type="hidden" name="timeout_prompt" value="{{ ivr.get('timeout',{}).get('prompt','') }}" required>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black">{{ ivr.get('timeout',{}).get('prompt','') }}</span>
+          </div>
         </div>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -56,16 +66,22 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label class="field-label">Promotional Prompt</label>
-          <input type="text" name="promotion_prompt" list="sound-list" value="{{ ivr.get('promotion_prompt',{}).get('prompt','') if ivr.get('promotion_prompt') is mapping else '' }}" placeholder="sounds/promo" class="form-input">
+          <input type="hidden" name="promotion_prompt" value="{{ ivr.get('promotion_prompt',{}).get('prompt','') if ivr.get('promotion_prompt') is mapping else '' }}">
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black">{{ ivr.get('promotion_prompt',{}).get('prompt','') if ivr.get('promotion_prompt') is mapping else '' }}</span>
+          </div>
         </div>
         <div>
           <label class="field-label">Music on Hold</label>
-          <input type="text" name="hold_music" list="sound-list" value="{{ ivr.get('hold_music',{}).get('prompt','') }}" placeholder="sounds/hold_music" class="form-input">
+          <input type="hidden" name="hold_music" value="{{ ivr.get('hold_music',{}).get('prompt','') }}">
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black">{{ ivr.get('hold_music',{}).get('prompt','') }}</span>
+          </div>
         </div>
       </div>
     </div>
-
-    <datalist id="sound-list">{% for s in sounds %}<option value="{{ s }}">{% endfor %}</datalist>
 
     <div class="panel-card p-6 space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 flex-wrap">
@@ -94,41 +110,49 @@
       <div class="menu-body {% if not loop.first %}hidden{% endif %} space-y-4" data-menu="{{ name }}">
         <input type="hidden" name="menu_exists__{{ name }}" value="1">
         <div>
-          <label class="field-label" for="menu_prompt__{{ name }}">Announcement for "{{ name }}" *</label>
-          <input type="text" id="menu_prompt__{{ name }}" name="menu_prompt__{{ name }}" list="sound-list" value="{{ body.get('menu_prompt','') }}" placeholder="/sounds/{{ name }}_menu" required class="form-input">
+          <label class="field-label">Announcement for "{{ name }}" *</label>
+          <input type="hidden" name="menu_prompt__{{ name }}" value="{{ body.get('menu_prompt','') }}" required>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black">{{ body.get('menu_prompt','') }}</span>
+          </div>
         </div>
         <div class="table-container">
           <table class="data-table">
-            <thead><tr><th>On</th><th>Key</th><th>Label</th><th>Action</th><th>Target</th></tr></thead>
-            <tbody>
+            <thead><tr><th>Key</th><th>Label</th><th>Action</th><th>Target</th><th></th></tr></thead>
+            <tbody data-menu-body="{{ name }}">
               {% set opts = body.get('dtmf_options', {}) or {} %}
-              {% for key in dtmf_keys %}
-              {% set opt = opts.get(key, {}) %}
-              <tr class="{% if key in opts %}enabled{% else %}disabled{% endif %}">
-                <td class="text-center"><input type="checkbox" name="dtmf_enabled__{{ key }}__{{ name }}" value="1" {% if key in opts %}checked{% endif %} onchange="this.closest('tr').className=this.checked?'enabled':'disabled'"></td>
-                <td class="text-center"><span class="key-glyph">{{ key }}</span></td>
-                <td><input type="text" name="dtmf_description__{{ key }}__{{ name }}" value="{{ opt.get('description','') }}" placeholder="Sales" class="form-input-sm"></td>
+              {% for key, opt in opts.items() %}
+              <tr>
                 <td>
-                  <select name="dtmf_action__{{ key }}__{{ name }}" onchange="toggleActionFields(this)" class="form-select-sm">
+                  <select name="dtmf_key__{{ loop.index0 }}__{{ name }}" class="form-select-sm">
+                    {% for k in dtmf_keys %}<option value="{{ k }}" {% if key == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+                  </select>
+                </td>
+                <td><input type="text" name="dtmf_description__{{ loop.index0 }}__{{ name }}" value="{{ opt.get('description','') }}" placeholder="Sales" class="form-input-sm"></td>
+                <td>
+                  <select name="dtmf_action__{{ loop.index0 }}__{{ name }}" onchange="toggleActionFields(this)" class="form-select-sm">
                     {% for act in actions %}<option value="{{ act }}" {% if opt.get('action') == act %}selected{% endif %}>{{ act }}</option>{% endfor %}
                   </select>
                 </td>
                 <td>
-                  <select name="dtmf_endpoint__{{ key }}__{{ name }}" class="action-field action-dial form-select-sm {% if opt.get('action') != 'dial' %}hidden{% endif %}">
+                  <select name="dtmf_endpoint__{{ loop.index0 }}__{{ name }}" class="action-field action-dial form-select-sm {% if opt.get('action') != 'dial' %}hidden{% endif %}">
                     <option value="">-- Extension --</option>
                     {% for ext in extensions %}<option value="{{ ext.get('number','') }}" {% if opt.get('endpoint') == ext.get('number','')|string %}selected{% endif %}>Ext {{ ext.get('number','') }}</option>{% endfor %}
                   </select>
-                  <select name="dtmf_target__{{ key }}__{{ name }}" class="action-field action-submenu form-select-sm {% if opt.get('action') not in ('submenu','parent') %}hidden{% endif %}">
+                  <select name="dtmf_target__{{ loop.index0 }}__{{ name }}" class="action-field action-submenu form-select-sm {% if opt.get('action') not in ('submenu','parent') %}hidden{% endif %}">
                     <option value="">-- Menu --</option>
                     {% for mn in menu_names %}<option value="{{ mn }}" {% if opt.get('target') == mn %}selected{% endif %}>{{ mn }}</option>{% endfor %}
                   </select>
-                  <input type="text" name="dtmf_mailbox__{{ key }}__{{ name }}" value="{{ opt.get('mailbox','') }}" placeholder="mailbox" class="action-field action-voicemail form-input-sm {% if opt.get('action') != 'voicemail' %}hidden{% endif %}">
+                  <input type="text" name="dtmf_mailbox__{{ loop.index0 }}__{{ name }}" value="{{ opt.get('mailbox','') }}" placeholder="mailbox" class="action-field action-voicemail form-input-sm {% if opt.get('action') != 'voicemail' %}hidden{% endif %}">
                 </td>
+                <td><button type="button" onclick="this.closest('tr').remove(); reindexMenuRows('{{ name }}')" class="btn-danger-subtle">X</button></td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
+        <button type="button" onclick="addDtmfRow('{{ name }}')" class="btn-secondary btn-sm">+ Add DTMF Option</button>
         {% if (ivr.get('menus', {}) or {}).keys()|list|length > 1 %}
         <div>
           <button type="button" onclick="if(confirm('Delete menu {{ name }}?')) { document.getElementById('delete-menu-name').value = '{{ name }}'; document.getElementById('delete-menu-form').submit(); }" class="btn-danger-subtle">Delete "{{ name }}"</button>
@@ -141,7 +165,6 @@
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <a href="/extensions" class="btn-secondary">Back</a>
       <div class="flex items-center gap-3 flex-wrap">
-        <a href="/media" class="btn-secondary">Audio Library</a>
         <button type="submit" class="btn-primary">Continue to SMTP</button>
       </div>
     </div>
@@ -160,8 +183,12 @@
           <p class="field-help">Lowercase, digits, underscores.</p>
         </div>
         <div>
-          <label class="field-label" for="menu_prompt_new">Prompt File</label>
-          <input type="text" id="menu_prompt_new" name="menu_prompt_new" list="sound-list" placeholder="/sounds/sales_menu" class="form-input font-mono">
+          <label class="field-label">Prompt File</label>
+          <input type="hidden" id="menu_prompt_new" name="menu_prompt_new">
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onclick="pickPrompt(this)">Upload Music</button>
+            <span class="prompt-name text-xs font-mono text-black"></span>
+          </div>
         </div>
         <div class="flex justify-end gap-3">
           <button type="button" onclick="closeMenuModal()" class="btn-secondary btn-sm">Cancel</button>
@@ -204,5 +231,73 @@ document.addEventListener('DOMContentLoaded', () => {
   const s = document.querySelector('select[name="start_menu"]');
   if (s && s.value) showMenu(s.value);
 });
+
+async function pickPrompt(btn) {
+  const wrap = btn.parentElement.parentElement;
+  const hidden = wrap.querySelector('input[type=hidden]');
+  const label = wrap.querySelector('.prompt-name');
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.oga,.ogg';
+  input.onchange = async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append('file', f);
+    btn.disabled = true; btn.textContent = 'Uploading...';
+    try {
+      const res = await fetch('/media/upload', {method: 'POST', body: fd, headers: {'Accept': 'application/json'}});
+      const data = await res.json();
+      if (data.ok) {
+        hidden.value = data.prompt;
+        label.textContent = data.prompt;
+      } else {
+        alert(data.error || 'Upload failed');
+      }
+    } catch (e) { alert('Upload failed'); }
+    btn.disabled = false; btn.textContent = 'Upload Music';
+  };
+  input.click();
+}
+
+function reindexMenuRows(menu) {
+  const tbody = document.querySelector('tbody[data-menu-body="'+menu+'"]');
+  if (!tbody) return;
+  tbody.querySelectorAll('tr').forEach((tr, i) => {
+    tr.querySelectorAll('[name]').forEach(el => {
+      el.name = el.name.replace(/__\d+__/, '__' + i + '__');
+    });
+  });
+}
+
+function addDtmfRow(menu) {
+  const tbody = document.querySelector('tbody[data-menu-body="'+menu+'"]');
+  if (!tbody) return;
+  const idx = tbody.querySelectorAll('tr').length;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select name="dtmf_key__${idx}__${menu}" class="form-select-sm">
+      {% for k in dtmf_keys %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+    </select></td>
+    <td><input type="text" name="dtmf_description__${idx}__${menu}" placeholder="Sales" class="form-input-sm"></td>
+    <td><select name="dtmf_action__${idx}__${menu}" onchange="toggleActionFields(this)" class="form-select-sm">
+      {% for act in actions %}<option value="{{ act }}">{{ act }}</option>{% endfor %}
+    </select></td>
+    <td>
+      <select name="dtmf_endpoint__${idx}__${menu}" class="action-field action-dial form-select-sm hidden">
+        <option value="">-- Extension --</option>
+        {% for ext in extensions %}<option value="{{ ext.get('number','') }}">Ext {{ ext.get('number','') }}</option>{% endfor %}
+      </select>
+      <select name="dtmf_target__${idx}__${menu}" class="action-field action-submenu form-select-sm hidden">
+        <option value="">-- Menu --</option>
+        {% for mn in menu_names %}<option value="{{ mn }}">{{ mn }}</option>{% endfor %}
+      </select>
+      <input type="text" name="dtmf_mailbox__${idx}__${menu}" placeholder="mailbox" class="action-field action-voicemail form-input-sm hidden">
+    </td>
+    <td><button type="button" onclick="this.closest('tr').remove(); reindexMenuRows('${menu}')" class="btn-danger-subtle">X</button></td>`;
+  tbody.appendChild(tr);
+  const sel = tr.querySelector('select[name^="dtmf_action__"]');
+  if (sel) toggleActionFields(sel);
+}
 </script>
 {% endblock %}
