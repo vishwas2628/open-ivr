@@ -1,30 +1,83 @@
 {% extends "base.html" %}
-{% block title %}openivr finish{% endblock %}
+{% block title %}OpenIVR — Step 6: Review &amp; Deploy{% endblock %}
 {% block content %}
-<section>
-  <h2>Final check</h2>
-  {% if ok %}<p class="good">{{ ok }}</p>{% endif %}
+<div class="space-y-6">
+
+  <div class="text-center space-y-2">
+    <h1 class="page-title text-4xl">OpenIVR</h1>
+    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
+    <div class="step-eyebrow pt-2">Step 6 of 6 — Review &amp; Publish</div>
+    <p class="text-sm text-black max-w-2xl mx-auto">Verify, finalize JSON, then deploy to Asterisk.</p>
+  </div>
+
   {% if errors %}
-    <p class="bad">{{ errors|length }} problem(s):</p>
-    <ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
-    <p><a class="button" href="/build">Back to the builder</a>
-       <a class="button" href="/media">Back to media</a></p>
-  {% else %}
-    <p class="good">Flow is valid: {{ menus|length }} menu(s),
-      {{ draft.get('welcome') or 'no welcome prompt' }},
-      {{ files|length }} prompt file(s).</p>
-    <ul class="summary">
-      <li>start menu: <code>{{ draft.start_menu }}</code></li>
-      {% for name, m in draft.menus.items() %}
-        <li><code>{{ name }}</code>: {{ m.options|length }} option(s), timeout {{ m.timeout.seconds }}s</li>
-      {% endfor %}
+  <div class="notice-box space-y-2 max-w-3xl mx-auto">
+    <div class="notice-title"><span>Incomplete ({{ errors|length }})</span></div>
+    <ul class="text-xs list-disc list-inside space-y-1 pl-1">
+      {% for e in errors %}<li>{{ e }}</li>{% endfor %}
     </ul>
-    {% if voicemail and not smtp_ready %}
-      <p class="warn">Voicemail is enabled, so you will be asked for SMTP settings next.</p>
-    {% endif %}
-    <form method="post" action="/finish">
-      <button type="submit" class="primary">Save flow &amp; start the IVR</button>
-    </form>
+  </div>
   {% endif %}
-</section>
+
+  {% if finished and not published and not errors %}
+  <div class="notice-box max-w-3xl mx-auto">JSON finalized. Click <strong>Build &amp; Deploy</strong> below.</div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+    <div class="panel-card p-5 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2"><span class="badge badge-dark">1</span><span class="text-xs font-bold uppercase">Trunk</span></div>
+        <a href="/trunk" class="link text-xs">Edit</a>
+      </div>
+      {% if trunk.get('provider_id') %}
+      <div class="font-bold text-sm">{{ trunk.get('name') or trunk.get('provider_id') }}</div>
+      <div class="text-xs">Host: <code>{{ trunk.get('host_fqdn') }}</code></div>
+      <div class="text-xs capitalize">Auth: {{ trunk.get('auth_type', 'registration') }}</div>
+      {% else %}<div class="text-xs italic">Not configured.</div>{% endif %}
+    </div>
+    <div class="panel-card p-5 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2"><span class="badge badge-dark">2</span><span class="text-xs font-bold uppercase">Endpoints</span></div>
+        <a href="/endpoints" class="link text-xs">Edit</a>
+      </div>
+      {% if endpoints %}
+      <div class="font-bold text-sm">{{ endpoints|length }} account(s)</div>
+      <div class="pill-row">{% for u in endpoints %}<span class="chip">{{ u.get('username') }}</span>{% endfor %}</div>
+      {% else %}<div class="text-xs italic">None.</div>{% endif %}
+    </div>
+    <div class="panel-card p-5 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2"><span class="badge badge-dark">3</span><span class="text-xs font-bold uppercase">Extensions</span></div>
+        <a href="/extensions" class="link text-xs">Edit</a>
+      </div>
+      {% if extensions %}
+      <div class="font-bold text-sm">{{ extensions|length }} extension(s)</div>
+      <div class="text-xs space-y-1">{% for ext in extensions %}<div>Ext <code>{{ ext.get('number') }}</code> &rarr; {{ ext.get('strategy') }}</div>{% endfor %}</div>
+      {% else %}<div class="text-xs italic">None.</div>{% endif %}
+    </div>
+    <div class="panel-card p-5 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2"><span class="badge badge-dark">4</span><span class="text-xs font-bold uppercase">Dialplan</span></div>
+        <a href="/dialplan" class="link text-xs">Edit</a>
+      </div>
+      {% if ivr and ivr.get('menus') %}
+      <div class="font-bold text-sm">{{ (ivr.get('menus') or {})|length }} menu(s) &middot; Entry: <code>{{ ivr.get('start_menu','main') }}</code></div>
+      {% else %}<div class="text-xs italic">Not configured.</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="panel-card p-6 space-y-4 max-w-3xl mx-auto">
+    <h2 class="section-title">Activation</h2>
+    <p class="field-help">Generates configs in <code>/etc/asterisk</code> and reloads.</p>
+    <div class="flex flex-wrap items-center justify-center gap-3">
+      {% if not finished or errors %}
+      <form method="post" action="/finish"><button type="submit" class="btn-primary">Finalize JSON</button></form>
+      {% else %}
+      <form method="post" action="/publish"><button type="submit" class="btn-primary">Build &amp; Deploy</button></form>
+      <form method="post" action="/finish"><button type="submit" class="btn-secondary btn-sm">Re-validate</button></form>
+      {% endif %}
+      <a href="/smtp" class="btn-secondary">Back</a>
+    </div>
+  </div>
+</div>
 {% endblock %}

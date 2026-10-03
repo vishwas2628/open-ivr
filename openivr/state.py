@@ -92,6 +92,7 @@ class IVRState(ToplevelChannelState, DTMFHandler):
         self._direct_digits = ""
         self._answer_delay = self.cfg.app.answer_delay
         self._guard = self.cfg.dial.dial_timeout + 60
+        self._menu_history: list[str] = []
 
     # ----------------------------------------------------------------- events
 
@@ -187,6 +188,8 @@ class IVRState(ToplevelChannelState, DTMFHandler):
             if self._dead.is_set():
                 return
         while not self._dead.is_set():
+            if not self._menu_history or self._menu_history[-1] != menu_name:
+                self._menu_history.append(menu_name)
             menu = self.flow.menus.get(menu_name)
             if menu is None:
                 log.error("[%s] menu %r is not in the flow", self.rec.call_id, menu_name)
@@ -274,6 +277,16 @@ class IVRState(ToplevelChannelState, DTMFHandler):
             return Step(END)
         if action.type in {"submenu", "goto"}:
             return Step(GOTO, menu=action.target)
+        if action.type == "parent":
+            return Step(GOTO, menu=action.target or self.flow.start_menu)
+        if action.type == "repeat":
+            return Step(CONTINUE)
+        if action.type == "goback":
+            if len(self._menu_history) > 1:
+                self._menu_history.pop()  # current menu
+                prev = self._menu_history.pop()  # target menu (will be re-appended in loop)
+                return Step(GOTO, menu=prev)
+            return Step(GOTO, menu=self.flow.start_menu)
         if action.type == "dial":
             return await self._do_dial(action)
         if action.type == "voicemail":

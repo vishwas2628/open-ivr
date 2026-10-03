@@ -1,4 +1,4 @@
-"""Builder HTTP surface: pages, draft persistence, media and SMTP handling.
+"""Builder HTTP surface: stepper wizard, draft persistence, media, publish and SMTP.
 
 Uses ``fastapi.testclient.TestClient`` - no network, no running builder server.
 """
@@ -11,441 +11,380 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from openivr.builder.server import (
-    create_app,
-    default_flow,
-    flow_errors,
-    get_menu,
-    menu_names,
-    read_smtp,
+from openivr.builder.providers import catalog_public, countries, provider_by_id, providers
+from openivr.builder.publish import publish
+from openivr.builder.render import render_all
+from openivr.builder.server import create_app, read_smtp, write_smtp
+from openivr.builder.session import (
+    load_endpoints,
+    load_extensions,
+    load_ivr,
+    load_progress,
+    load_trunk,
+    save_endpoints,
+    save_extensions,
+    save_ivr,
+    save_trunk,
 )
-from openivr.flow import Flow
 
 
 @pytest.fixture
 def client(project: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("OPENIVR_BUILDER_TOKEN", raising=False)
+    # Ensure project data directory exists
+    (project / "data").mkdir(parents=True, exist_ok=True)
+    (project / "data" / "sounds").mkdir(parents=True, exist_ok=True)
     app = create_app(project)
     app.state.keep_open = True
     with TestClient(app) as test_client:
         yield test_client
 
 
-def test_index_lists_steps(client: TestClient) -> None:
-    body = client.get("/").text
-    assert "openivr" in body.lower()
-    assert "/build" in body and "/media" in body
-
-
-def test_status_reports_config(client: TestClient, project: Path) -> None:
-    payload = client.get("/status").json()
-    assert payload["flow_file"].endswith("data/ivr_flow.json")
-    assert payload["flow_exists"] is True
-    assert payload["menus"], "the starter draft should have menus"
-    assert payload["ari"]["base_url"].startswith("http")
-    assert payload["prompts"] == 0
-    assert payload["validation_errors"] == []
-
-
-def test_build_page_renders_current_menu(client: TestClient) -> None:
-    body = client.get("/build").text
-    assert "main" in body
-    assert "menu__main" in body
-
-
-def test_missing_flow_file_falls_back_to_the_starter(client: TestClient, project: Path) -> None:
-    (project / "data" / "ivr_flow.json").unlink()
-    body = client.get("/build").text
-    assert "menu__main" in body
-    assert "starter" in body.lower() or "main-menu" in body
-
-
-def test_unparsable_flow_is_not_shown(client: TestClient, project: Path) -> None:
-    (project / "data" / "ivr_flow.json").write_text("{not json", encoding="utf-8")
-    assert "menu__main" in client.get("/build").text
-
-
-def test_build_page_without_menus(
-    client: TestClient, project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (project / "data" / "ivr_flow.json").unlink()
-    monkeypatch.setattr(
-        "openivr.builder.server.default_flow",
-        lambda: {"version": 1, "start_menu": "main", "menus": {}},
-    )
-    body = client.get("/build").text
-    assert "No menus yet" in body
-
-
-def test_hand_written_partial_flow_still_renders(client: TestClient, project: Path) -> None:
-    """A menu with no timeout block must not 500 the builder."""
-    (project / "data" / "ivr_flow.json").write_text(
-        json.dumps({"version": 1, "start_menu": "main", "menus": {"main": {"options": {}}}}),
-        encoding="utf-8",
-    )
-    body = client.get("/build").text
-    assert "timeout_seconds__main" in body
-
-
-def test_add_menu_then_edit_it(client: TestClient, project: Path) -> None:
-    assert (
-        client.post("/build/menu/add", data={"name": "sales"}, follow_redirects=False).status_code
-        == 303
-    )
-    draft = json.loads((project / "data" / "ivr_flow.json").read_text(encoding="utf-8"))
-    assert "sales" in draft["menus"]
-    assert draft["menus"]["sales"]["timeout"]["seconds"] == 8
-
-    body = client.get("/build?menu=sales").text
-    assert "prompt__sales" in body
-
-
-def test_add_menu_can_copy_an_existing_one(client: TestClient, project: Path) -> None:
-    client.post("/build/menu/add", data={"name": "sales"})
-    draft_path = project / "data" / "ivr_flow.json"
-    draft = json.loads(draft_path.read_text(encoding="utf-8"))
-    draft["menus"]["sales"]["timeout"]["seconds"] = 3
-    draft["menus"]["sales"]["prompt"] = "sales-welcome"
-    draft_path.write_text(json.dumps(draft), encoding="utf-8")
-
-    client.post(
-        "/build/menu/add",
-        data={"name": "billing", "copy_from": "sales", "prompt": "billing-welcome"},
-    )
-    draft = json.loads(draft_path.read_text(encoding="utf-8"))
-    assert draft["menus"]["billing"]["timeout"]["seconds"] == 3
-    assert draft["menus"]["billing"]["prompt"] == "billing-welcome"
-    assert (
-        draft["menus"]["billing"]["invalid"]["max_retries"]
-        == draft["menus"]["sales"]["invalid"]["max_retries"]
-    )
-
-
-def test_delete_menu_repairs_references(client: TestClient, project: Path) -> None:
-    draft_path = project / "data" / "ivr_flow.json"
-    draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "start_menu": "sales",
-                "menus": {
-                    "sales": {
-                        "options": {"1": {"action": "submenu", "target": "support"}},
-                        "timeout": {"fail_action": {"action": "submenu", "target": "support"}},
-                    },
-                    "support": {"options": {"9": {"action": "hangup"}}},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    client.post("/build/menu/delete", data={"menu": "support"})
-    draft = json.loads(draft_path.read_text(encoding="utf-8"))
-    assert "support" not in draft["menus"]
-    assert draft["start_menu"] == "sales"
-    assert draft["menus"]["sales"]["options"]["1"]["target"] == "sales"
-    assert draft["menus"]["sales"]["timeout"]["fail_action"]["target"] == "sales"
-
-
-def test_delete_last_menu_is_refused(client: TestClient, project: Path) -> None:
-    draft_path = project / "data" / "ivr_flow.json"
-    draft_path.write_text(
-        json.dumps({"version": 1, "start_menu": "main", "menus": {"main": {"options": {}}}}),
-        encoding="utf-8",
-    )
-    client.post("/build/menu/delete", data={"menu": "main"})
-    assert "main" in json.loads(draft_path.read_text(encoding="utf-8"))["menus"]
-
-
-def form_for(menu: str, digit: str, **extra: object) -> dict[str, str]:
-    data = {
-        "current_menu": menu,
-        f"menu__{menu}": menu,
-        f"prompt__{menu}": f"{menu}-prompt",
-        f"timeout_seconds__{menu}": "5",
-        f"timeout_retries__{menu}": "1",
-        f"timeout_prompt__{menu}": "sorry",
-        f"invalid_retries__{menu}": "1",
-        f"invalid_prompt__{menu}": "again",
-        f"fail_action__{menu}": "hangup",
-        f"enabled__{digit}__{menu}": "on",
-        f"action__{digit}__{menu}": "submenu",
-        f"target__{digit}__{menu}": "support",
-        f"next_action__{digit}__{menu}": "hangup",
-        "welcome": "welcome",
-        "goodbye": "goodbye",
-        "start_menu": "main",
-    }
-    data.update({k: str(v) for k, v in extra.items()})
-    return data
-
-
-def test_save_flow_round_trip(client: TestClient, project: Path) -> None:
-    response = client.post("/build/save", data=form_for("main", "1"), follow_redirects=False)
+def test_index_redirects_to_trunk(client: TestClient) -> None:
+    response = client.get("/", follow_redirects=False)
     assert response.status_code == 303
-    draft = json.loads((project / "data" / "ivr_flow.json").read_text(encoding="utf-8"))
-    assert draft["menus"]["main"]["options"]["1"] == {"action": "submenu", "target": "support"}
-    assert "support" in draft["menus"], "menus the form omits must survive the save"
-    assert draft["menus"]["main"]["prompt"] == "main-prompt"
-    assert draft["menus"]["main"]["timeout"]["seconds"] == 5.0
-    assert draft["welcome"] == "welcome" and draft["goodbye"] == "goodbye"
+    assert response.headers["location"] == "/trunk"
 
 
-def test_save_collect_option(client: TestClient, project: Path) -> None:
-    form = form_for(
-        "main",
-        "2",
-        action__2__main="collect",
-        target__2__main="",
-        min_digits__2__main="2",
-        max_digits__2__main="4",
-        next_action__2__main="submenu",
-        next_target__2__main="support",
-    )
-    client.post("/build/save", data=form, follow_redirects=False)
-    option = json.loads((project / "data" / "ivr_flow.json").read_text(encoding="utf-8"))
-    option = option["menus"]["main"]["options"]["2"]
-    assert option["action"] == "collect"
-    assert option["min_digits"] == 2 and option["max_digits"] == 4
-    assert option["next"] == {"action": "submenu", "target": "support"}
+def test_trunk_page_renders(client: TestClient) -> None:
+    response = client.get("/trunk")
+    assert response.status_code == 200
+    assert "Trunk Configuration" in response.text
+    assert "SIP Provider" in response.text
+    assert "India" in response.text
 
 
-def test_save_voicemail_option(client: TestClient, project: Path) -> None:
-    form = form_for(
-        "main", "3", action__3__main="voicemail", target__3__main="", after_action__3__main="hangup"
-    )
-    client.post("/build/save", data=form, follow_redirects=False)
-    option = json.loads((project / "data" / "ivr_flow.json").read_text(encoding="utf-8"))
-    assert option["menus"]["main"]["options"]["3"]["action"] == "voicemail"
+def test_api_catalog_and_providers(client: TestClient) -> None:
+    cat = client.get("/api/catalog").json()
+    assert "countries" in cat and "providers" in cat
+    assert len(cat["providers"]) >= 10
+
+    in_providers = client.get("/api/providers?country=IN").json()
+    assert any(p["id"] == "bsnl_wings" for p in in_providers)
+
+    bsnl = client.get("/api/provider/bsnl_wings").json()
+    assert bsnl["name"] == "BSNL Wings"
+    assert bsnl["auth_type"] == "registration"
+
+    missing = client.get("/api/provider/nonexistent")
+    assert missing.status_code == 404
 
 
-def test_invalid_flow_is_not_saved(client: TestClient, project: Path) -> None:
-    draft_path = project / "data" / "ivr_flow.json"
-    before = draft_path.read_text(encoding="utf-8")
-    form = form_for("main", "1", action__1__main="submenu", target__1__main="nowhere")
-    response = client.post("/build/save", data=form)
+def test_trunk_save_valid(client: TestClient, project: Path) -> None:
+    form = {
+        "country": "IN",
+        "provider_id": "bsnl_wings",
+        "host_fqdn": "ims.bsnl.in",
+        "transport": "transport-udp",
+        "auth_type": "registration",
+        "match_ips": "117.239.0.0/16\n218.248.0.0/16",
+        "field__inbound_number": "919999999999",
+        "field__username": "testuser",
+        "field__password": "testpassword",
+        "field__registration_uri": "sip:testuser@ims.bsnl.in",
+    }
+    response = client.post("/trunk", data=form, follow_redirects=False)
+    assert response.status_code == 303
+    assert "/endpoints" in response.headers["location"]
+
+    trunk = load_trunk(project)
+    assert trunk["provider_id"] == "bsnl_wings"
+    assert trunk["fields"]["username"] == "testuser"
+    assert len(trunk["match"]) == 2
+
+
+def test_trunk_save_missing_required_fields(client: TestClient) -> None:
+    form = {
+        "country": "IN",
+        "provider_id": "bsnl_wings",
+        # missing credentials
+    }
+    response = client.post("/trunk", data=form)
     assert response.status_code == 400
-    assert "nowhere" in response.text
-    assert draft_path.read_text(encoding="utf-8") == before, "a bad save must not be written"
+    assert "required" in response.text.lower()
 
 
-def test_time_route_form_fields(client: TestClient, project: Path) -> None:
-    draft_path = project / "data" / "ivr_flow.json"
-    draft = json.loads(draft_path.read_text(encoding="utf-8")) if draft_path.exists() else {}
-    draft.setdefault("version", 1)
-    draft["time_route"] = {
-        "timezone": "UTC",
-        "business_menu": "main",
-        "after_hours_menu": "main",
-        "hours": {"mon": ["09:00-17:00"]},
+def test_endpoints_workflow(client: TestClient, project: Path) -> None:
+    # GET empty
+    response = client.get("/endpoints")
+    assert response.status_code == 200
+    assert "Endpoints" in response.text
+
+    # POST valid endpoints
+    form = {
+        "username": ["alice", "bob"],
+        "password": ["secret1", "secret2"],
+        "display_name": ["Alice", "Bob"],
+        "protocol": ["pjsip", "iax"],
     }
-    draft_path.write_text(json.dumps(draft), encoding="utf-8")
-
-    form = form_for(
-        "main",
-        "1",
-        tr_prompt="business-hours",
-        tr_timezone="UTC",
-        tr_business="main",
-        tr_after_hours="support",
-    )
-    response = client.post("/build/save", data=form, follow_redirects=False)
+    response = client.post("/endpoints", data=form, follow_redirects=False)
     assert response.status_code == 303
-    saved = json.loads(draft_path.read_text(encoding="utf-8"))
-    assert saved["time_route"]["business_menu"] == "main"
-    assert saved["time_route"]["after_hours_menu"] == "support"
-    assert saved["time_route"]["hours"]["mon"] == ["09:00-17:00"]
+    assert "/extensions" in response.headers["location"]
+
+    eps = load_endpoints(project)
+    assert len(eps) == 2
+    assert eps[0]["username"] == "alice"
+    assert eps[1]["protocol"] == "iax"
 
 
-def test_upload_and_delete_prompt(client: TestClient, project: Path) -> None:
+def test_endpoints_validation_rejects_duplicates(client: TestClient) -> None:
+    form = {
+        "username": ["alice", "alice"],
+        "password": ["sec1", "sec2"],
+        "display_name": ["Alice 1", "Alice 2"],
+        "protocol": ["pjsip", "pjsip"],
+    }
+    response = client.post("/endpoints", data=form)
+    assert response.status_code == 400
+    assert "Duplicate" in response.text
+
+
+def test_extensions_workflow(client: TestClient, project: Path) -> None:
+    # Seed endpoints first
+    save_endpoints(
+        project,
+        [
+            {"username": "alice", "password": "p1"},
+            {"username": "bob", "password": "p2"},
+        ],
+    )
+
+    response = client.get("/extensions")
+    assert response.status_code == 200
+    assert "Extensions" in response.text
+
+    # Post extension mapping
+    form = {
+        "ext_number_0": "1001",
+        "ext_strategy_0": "single",
+        "ext_users_0": "alice",
+        "ext_number_1": "1002",
+        "ext_strategy_1": "linear",
+        "ext_users_1": "alice,bob",
+    }
+    response = client.post("/extensions", data=form, follow_redirects=False)
+    assert response.status_code == 303
+    assert "/dialplan" in response.headers["location"]
+
+    exts = load_extensions(project)
+    assert len(exts) == 2
+    assert exts[0]["number"] == "1001"
+    assert exts[0]["strategy"] == "single"
+    assert exts[1]["strategy"] == "linear"
+    assert exts[1]["users"] == ["alice", "bob"]
+
+
+def test_extensions_validation_invalid_number(client: TestClient, project: Path) -> None:
+    save_endpoints(project, [{"username": "alice", "password": "p1"}])
+    form = {
+        "ext_number_0": "invalid_num",
+        "ext_strategy_0": "single",
+        "ext_users_0": "alice",
+    }
+    response = client.post("/extensions", data=form)
+    assert response.status_code == 400
+    assert "1–999999" in response.text
+
+
+def test_dialplan_workflow(client: TestClient, project: Path) -> None:
+    save_endpoints(project, [{"username": "alice", "password": "p1"}])
+    save_extensions(project, [{"number": "1001", "strategy": "single", "users": ["alice"]}])
+
+    response = client.get("/dialplan")
+    assert response.status_code == 200
+    assert "IVR Dialplan" in response.text
+
+    form = {
+        "welcome_prompt": "sounds/welcome",
+        "invalid_prompt": "sounds/invalid",
+        "timeout_prompt": "sounds/timeout",
+        "timeout_seconds": "10",
+        "invalid_retries": "3",
+        "timeout_retries": "3",
+        "repeat_max": "3",
+        "start_menu": "main",
+        "menu_exists__main": "1",
+        "menu_prompt__main": "sounds/main_menu",
+        "dtmf_enabled__1__main": "1",
+        "dtmf_description__1__main": "Support",
+        "dtmf_action__1__main": "dial",
+        "dtmf_endpoint__1__main": "1001",
+    }
+    response = client.post("/dialplan", data=form, follow_redirects=False)
+    assert response.status_code == 303
+    assert "/smtp" in response.headers["location"]
+
+    ivr = load_ivr(project)
+    assert ivr["welcome_prompt"]["prompt"] == "sounds/welcome"
+    assert ivr["menus"]["main"]["dtmf_options"]["1"]["action"] == "dial"
+    assert ivr["menus"]["main"]["dtmf_options"]["1"]["endpoint"] == "1001"
+
+
+def test_dialplan_menu_add_and_delete(client: TestClient, project: Path) -> None:
+    client.post("/dialplan/menu/add", data={"menu_name": "sales", "menu_prompt_new": "sounds/sales"})
+    ivr = load_ivr(project)
+    assert "sales" in ivr["menus"]
+    assert ivr["menus"]["sales"]["menu_prompt"] == "sounds/sales"
+
+    client.post("/dialplan/menu/delete", data={"menu_name": "sales"})
+    ivr = load_ivr(project)
+    assert "sales" not in ivr["menus"]
+
+
+def test_media_upload_and_delete(client: TestClient, project: Path) -> None:
+    # Test file upload with snake_case conversion
     response = client.post(
         "/media/upload",
-        files={"file": ("hello_world.wav", b"RIFF....", "audio/wav")},
+        files={"file": ("My Prompt 01.wav", b"RIFF....", "audio/wav")},
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert "err=" not in response.headers["location"]
-    sounds = list(Path(project / "data" / "sounds").iterdir())
-    assert [p.name for p in sounds] == ["hello_world.wav"]
+    assert "my_prompt_01.wav" in response.headers["location"]
 
-    body = client.get("/media").text
-    assert "hello_world" in body
+    sounds_dir = project / "data" / "sounds"
+    assert (sounds_dir / "my_prompt_01.wav").exists()
 
-    client.post("/media/delete", data={"name": "hello_world"}, follow_redirects=False)
-    assert not (project / "data" / "sounds" / "hello_world.wav").exists()
-
-
-def test_upload_rejects_spaces(client: TestClient, project: Path) -> None:
-    response = client.post(
-        "/media/upload",
-        files={"file": ("hello world.wav", b"RIFF", "audio/wav")},
-        follow_redirects=False,
-    )
-    assert "err=" in response.headers["location"]
-    assert list((project / "data" / "sounds").iterdir()) == []
-
-
-def test_upload_strips_paths_from_the_filename(client: TestClient, project: Path) -> None:
-    response = client.post(
-        "/media/upload",
-        files={"file": ("../../etc/passwd.wav", b"RIFF", "audio/wav")},
-        follow_redirects=False,
-    )
-    assert "err=" not in response.headers["location"]
-    assert [p.name for p in (project / "data" / "sounds").iterdir()] == ["passwd.wav"]
-    assert not (project / "passwd.wav").exists()
-    assert not (project / ".." / "passwd.wav").resolve().exists()
-
-    bad_type = client.post(
-        "/media/upload",
-        files={"file": ("evil.sh", b"#!/bin/sh", "application/x-sh")},
-        follow_redirects=False,
-    )
-    assert "unsupported%20format%20.sh" in bad_type.headers["location"]
-
-    not_wav = client.post(
-        "/media/upload",
-        files={"file": ("prompt.mp3", b"ID3", "audio/mpeg")},
-        follow_redirects=False,
-    )
-    assert "upload%20.wav" in not_wav.headers["location"]
-
-    empty = client.post(
-        "/media/upload", files={"file": ("empty.wav", b"", "audio/wav")}, follow_redirects=False
-    )
-    assert "file%20is%20empty" in empty.headers["location"]
-
-
-def test_media_delete_reports_missing_file(client: TestClient) -> None:
-    response = client.post("/media/delete", data={"name": "nothing"}, follow_redirects=False)
-    assert "file%20not%20found" in response.headers["location"]
-
-
-def test_smtp_requires_host_and_recipients(client: TestClient) -> None:
-    no_host = client.post("/smtp", data={"enabled": "on", "alerts_to": "a@b.c"})
-    assert no_host.status_code == 400 and "host is required" in no_host.text
-
-    no_recipient = client.post("/smtp", data={"enabled": "on", "host": "localhost"})
-    assert no_recipient.status_code == 400 and "recipient" in no_recipient.text
-
-
-def test_smtp_saves_and_loads(client: TestClient, project: Path) -> None:
-    response = client.post(
-        "/smtp",
-        data={
-            "enabled": "on",
-            "host": "smtp.example.net",
-            "port": "2525",
-            "username": "bot",
-            "password": "secret",
-            "from_addr": "ivr@example.net",
-            "alerts_to": "ops@example.net; dev@example.net",
-        },
-        follow_redirects=False,
-    )
+    # Delete
+    response = client.post("/media/delete", data={"name": "my_prompt_01.wav"}, follow_redirects=False)
     assert response.status_code == 303
+    assert not (sounds_dir / "my_prompt_01.wav").exists()
+
+
+def test_smtp_configuration(client: TestClient, project: Path) -> None:
+    response = client.get("/smtp")
+    assert response.status_code == 200
+
+    form = {
+        "enabled": "1",
+        "host": "smtp.mailgun.org",
+        "port": "587",
+        "starttls": "1",
+        "username": "postmaster@example.com",
+        "password": "secretpassword",
+        "from_addr": "ivr@example.com",
+        "alerts_to": "admin@example.com, ops@example.com",
+    }
+    response = client.post("/smtp", data=form, follow_redirects=False)
+    assert response.status_code == 303
+    assert "/finish" in response.headers["location"]
+
     stored = read_smtp(project)
-    assert stored["host"] == "smtp.example.net" and stored["port"] == 2525
-    assert stored["alerts_to"] == ["ops@example.net", "dev@example.net"]
-    assert stored["password"] == "secret"
+    assert stored["enabled"] is True
+    assert stored["host"] == "smtp.mailgun.org"
+    assert len(stored["alerts_to"]) == 2
 
 
-def test_smtp_disabled_needs_nothing(client: TestClient, project: Path) -> None:
-    client.post("/smtp", data={"enabled": "", "host": ""}, follow_redirects=False)
-    assert read_smtp(project)["enabled"] is False
-
-
-def test_finish_reports_errors(client: TestClient, project: Path) -> None:
-    draft_path = project / "data" / "ivr_flow.json"
-    draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "start_menu": "main",
-                "welcome": "no-such-prompt",
-                "menus": {"main": {"options": {"1": {"action": "goto", "target": "ghost"}}}},
-            }
-        ),
-        encoding="utf-8",
+def test_finish_and_publish_flow(client: TestClient, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Seed full valid setup
+    save_trunk(
+        project,
+        {
+            "country": "IN",
+            "provider_id": "bsnl_wings",
+            "name": "BSNL Wings",
+            "auth_type": "registration",
+            "host_fqdn": "ims.bsnl.in",
+            "transport": "transport-udp",
+            "match": ["117.239.0.0/16"],
+            "fields": {
+                "inbound_number": "919999999999",
+                "username": "user",
+                "password": "pwd",
+                "registration_uri": "sip:user@ims.bsnl.in",
+            },
+        },
     )
-    response = client.post("/finish")
-    assert response.status_code == 400
-    assert "ghost" in response.text
+    save_endpoints(
+        project,
+        [
+            {"username": "alice", "password": "pass1", "protocol": "pjsip"},
+        ],
+    )
+    save_extensions(
+        project,
+        [
+            {"number": "1001", "strategy": "single", "users": ["alice"]},
+        ],
+    )
+    save_ivr(
+        project,
+        {
+            "Version": "0.1.0",
+            "welcome_prompt": {"path": "welcome", "prompt": "sounds/welcome"},
+            "promotion_prompt": {"path": "", "prompt": ""},
+            "invalid": {"prompt": "sounds/invalid", "repeat_prompt": True, "max_retries": 3, "fail_action": "hangup"},
+            "timeout": {"seconds": 15, "prompt": "sounds/timeout", "repeat_prompt": True, "max_retries": 3, "fail_action": "hangup"},
+            "repeat": {"max_attempts": 3, "fallback": "hangup"},
+            "hold_music": {"prompt": ""},
+            "start_menu": "main",
+            "menus": {
+                "main": {
+                    "menu_prompt": "sounds/main",
+                    "dtmf_options": {
+                        "1": {"description": "Sales", "action": "dial", "endpoint": "1001"},
+                    },
+                }
+            },
+        },
+    )
 
+    # Mock reload script so it doesn't fail on missing asterisk
+    monkeypatch.setattr("openivr.builder.publish.run_reload", lambda: (True, "mocked reload ok"))
 
-def test_finish_saves_valid_flow(client: TestClient, project: Path) -> None:
-    """/finish validates prompts against the audio that actually exists."""
-    (project / "data" / "ivr_flow.json").unlink()
-    sounds = project / "data" / "sounds"
-    sounds.mkdir(parents=True, exist_ok=True)
-    (sounds / "placeholder.wav").write_bytes(b"RIFF")
-    client.post("/finish")
-    assert not (project / "data" / "ivr_flow.json").exists()
+    # Finish page renders summary
+    response = client.get("/finish")
+    assert response.status_code == 200
+    assert "Review &amp; Publish" in response.text
+    assert "BSNL Wings" in response.text
 
-    for prompt in Flow.from_dict(default_flow()).prompts():
-        (sounds / f"{prompt}.wav").write_bytes(b"RIFF")
+    # Post finish (finalize JSON)
     response = client.post("/finish", follow_redirects=False)
-    assert response.status_code in (200, 303)
-    assert (project / "data" / "ivr_flow.json").exists()
+    assert response.status_code == 303
+    prog = load_progress(project)
+    assert prog["finished"] is True
+
+    # Post publish (generate conf files)
+    dest_dir = project / "test_etc_asterisk"
+    monkeypatch.setenv("OPENIVR_ASTERISK_ETC", str(dest_dir))
+    response = client.post("/publish", follow_redirects=False)
+    assert response.status_code == 200
+    assert "Generated" in response.text or "Configuration Published" in response.text
+
+    # Check conf files generated
+    assert (dest_dir / "endpoints" / "trunks" / "bsnl_wings.conf").exists()
+    assert (dest_dir / "endpoints" / "alice.conf").exists()
+    assert (dest_dir / "extensions" / "1001.conf").exists()
 
 
-def test_token_guard_blocks_posts(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENIVR_BUILDER_TOKEN", "s3cret")
-    assert client.post("/build/save", data=form_for("main", "1")).status_code == 403
+def test_status_endpoint(client: TestClient, project: Path) -> None:
+    data = client.get("/status").json()
+    assert "progress" in data
+    assert "endpoints_count" in data
+    assert "extensions_count" in data
+
+
+def test_token_security_guard(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENIVR_BUILDER_TOKEN", "supersecret")
+    # POST without token is rejected
+    assert client.post("/dialplan/menu/add", data={"menu_name": "test"}).status_code == 403
+
+    # POST with header succeeds
     assert (
         client.post(
-            "/build/save",
-            data=form_for("main", "1"),
-            headers={"x-openivr-token": "s3cret"},
+            "/dialplan/menu/add",
+            data={"menu_name": "test"},
+            headers={"x-openivr-token": "supersecret"},
             follow_redirects=False,
         ).status_code
         == 303
     )
+
+    # POST with query param succeeds
     assert (
         client.post(
-            "/build/save",
-            data=form_for("main", "1"),
-            params={"token": "s3cret"},
+            "/dialplan/menu/add?token=supersecret",
+            data={"menu_name": "test2"},
             follow_redirects=False,
         ).status_code
         == 303
     )
-    assert (
-        client.post(
-            "/build/save", data=form_for("main", "1"), headers={"x-openivr-token": "wrong"}
-        ).status_code
-        == 403
-    )
-
-
-def test_non_local_client_is_rejected(client: TestClient) -> None:
-    response = client.post(
-        "/build/menu/add", data={"name": "x"}, headers={"x-forwarded-for": "10.0.0.9"}
-    )
-    assert response.status_code in (200, 303, 403)
-
-
-def test_helper_functions() -> None:
-    draft = default_flow()
-    assert menu_names(draft)
-    assert get_menu(draft, "does-not-exist") == {}
-    assert get_menu(draft, menu_names(draft)[0])
-
-
-def test_flow_errors_reports_problems(cfg) -> None:
-    broken = {
-        "version": 1,
-        "start_menu": "main",
-        "menus": {"main": {"options": {"1": {"action": "submenu", "target": "x"}}}},
-    }
-    errors = flow_errors(cfg, broken)
-    assert errors and "x" in errors[0]
-    assert flow_errors(cfg, default_flow()) == []
-
-
-def test_shutdown_endpoint(client: TestClient) -> None:
-    response = client.post("/shutdown", follow_redirects=False)
-    assert response.status_code in (200, 303)

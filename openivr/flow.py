@@ -54,6 +54,8 @@ ACTIONS = {
     "hangup",
     "goto",
     "time_route",
+    "goback",
+    "parent",
 }
 TERMINAL_ACTIONS = {"hangup", "dial"}
 
@@ -204,10 +206,13 @@ class Flow:
         if not isinstance(menus_raw, dict) or not menus_raw:
             raise FlowError(["flow.menus must be a non-empty object"])
         digits = {str(k): str(v) for k, v in (data.get("digits") or {}).items()}
+        welcome = data.get("welcome")
+        if not welcome and isinstance(data.get("welcome_prompt"), dict):
+            welcome = data.get("welcome_prompt", {}).get("prompt") or None
         return cls(
-            version=int(data.get("version", FLOW_VERSION)),
+            version=int(data.get("version", data.get("Version", FLOW_VERSION)) if str(data.get("version", data.get("Version", ""))).replace(".", "").isdigit() else FLOW_VERSION),
             start_menu=str(data.get("start_menu", "main")),
-            welcome=data.get("welcome") or None,
+            welcome=welcome or None,
             goodbye=data.get("goodbye") or None,
             menus={name: _menu_from_dict(name, body) for name, body in menus_raw.items()},
             time_route=_time_route_from_dict(data.get("time_route")),
@@ -276,7 +281,7 @@ def _action_from_dict(data: Any, where: str) -> Action:
         raise FlowError([f"{where}: unknown action {kind!r} (known: {', '.join(sorted(ACTIONS))})"])
     return Action(
         type=kind,
-        label=str(data.get("label", "") or ""),
+        label=str(data.get("label", "") or data.get("description", "") or ""),
         endpoint=str(data.get("endpoint", "") or ""),
         target=str(data.get("target", "") or ""),
         mailbox=str(data.get("mailbox", "") or ""),
@@ -304,12 +309,15 @@ def _menu_from_dict(name: str, body: Any) -> Menu:
     if not isinstance(invalid_raw, dict):
         raise FlowError([f"{where}.invalid: must be an object"])
     fail_action = timeout_raw.get("fail_action")
-    options_raw = body.get("options") or {}
+    options_raw = body.get("options") if body.get("options") is not None else body.get("dtmf_options")
+    if options_raw is None:
+        options_raw = {}
     if not isinstance(options_raw, dict):
         raise FlowError([f"{where}.options: must be an object keyed by digit"])
+    prompt = body.get("prompt") or body.get("menu_prompt") or None
     return Menu(
         name=name,
-        prompt=body.get("prompt") or None,
+        prompt=prompt,
         options={
             str(digit): Option(
                 digit=str(digit), action=_action_from_dict(opt, f"{where}.options.{digit}")

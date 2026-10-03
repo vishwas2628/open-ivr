@@ -220,6 +220,8 @@ def test_actions_are_documented() -> None:
         "hangup",
         "goto",
         "time_route",
+        "goback",
+        "parent",
     } == ACTIONS
 
 

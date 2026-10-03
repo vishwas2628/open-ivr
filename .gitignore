@@ -29,3 +29,6 @@ system.json
 .DS_Store
 asterisk-know-source.md
 plan.md
+data/*
+!data/.gitkeep
+temp

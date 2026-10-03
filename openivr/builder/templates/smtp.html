@@ -1,37 +1,76 @@
 {% extends "base.html" %}
-{% block title %}openivr SMTP{% endblock %}
+{% block title %}OpenIVR — Step 5: SMTP Notifications{% endblock %}
 {% block content %}
-<section>
-  <h2>Mail (voicemail delivery + service alerts)</h2>
-  {% if ok %}<p class="good">{{ ok }}</p>{% endif %}
-  {% if err %}<p class="bad">{{ err }}</p>{% endif %}
-  {% if next %}<p class="muted">After saving you will be returned to
-    <a href="{{ next }}">{{ next }}</a>.</p>{% endif %}
-  <form method="post" action="/smtp">
-    <input type="hidden" name="next" value="{{ next or '' }}">
-    <div class="grid">
-      <label class="check"><input type="checkbox" name="enabled" value="1"
-        {% if current.get('enabled') %}checked{% endif %}> SMTP enabled</label>
-      <label>Host <input name="host" value="{{ current.get('host', '') }}" placeholder="smtp.gmail.com"></label>
-      <label>Port <input type="number" name="port" value="{{ current.get('port', 587) }}"></label>
-      <label class="check"><input type="checkbox" name="starttls" value="1"
-        {% if current.get('starttls') %}checked{% endif %}> STARTTLS</label>
-      <label>Username <input name="username" value="{{ current.get('username', '') }}"></label>
-      <label>Password <input type="password" name="password" value="{{ current.get('password', '') }}"
-        placeholder="app password / token"></label>
-      <label>From address <input name="from_addr" value="{{ current.get('from_addr', '') }}"
-        placeholder="ivr@example.com"></label>
-      <label class="wide">Recipients (comma separated)
-        <input name="alerts_to" value="{{ current.get('alerts_to', '') }}"
-               placeholder="support@example.com, ops@example.com">
+<div class="space-y-6">
+
+  <div class="text-center space-y-2">
+    <h1 class="page-title text-4xl">OpenIVR</h1>
+    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
+    <div class="step-eyebrow pt-2">Step 5 of 6 — SMTP (Optional)</div>
+    <p class="text-sm text-black max-w-2xl mx-auto">Voicemail delivery and service alerts.</p>
+  </div>
+
+  {% if ok %}<div class="notice-box max-w-2xl mx-auto">{{ ok }}</div>{% endif %}
+  {% if err %}<div class="notice-box max-w-2xl mx-auto">{{ err }}</div>{% endif %}
+
+  <form method="post" action="/smtp" class="space-y-6 max-w-2xl mx-auto">
+    <div class="panel-card p-6 space-y-5">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="section-title">Mail Settings</h2>
+        <label class="flex items-center gap-2 text-xs font-bold cursor-pointer">
+          <input type="checkbox" id="enabled" name="enabled" value="1" {% if current.get('enabled') %}checked{% endif %}>
+          <span>Enable SMTP</span>
+        </label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <label class="field-label">SMTP Host</label>
+          <input type="text" name="host" value="{{ current.get('host', '') }}" placeholder="smtp.gmail.com" class="form-input">
+        </div>
+        <div>
+          <label class="field-label">Port</label>
+          <input type="number" name="port" value="{{ current.get('port', 587) }}" class="form-input">
+          <p class="field-help">587 STARTTLS / 465 SSL.</p>
+        </div>
+        <div>
+          <label class="field-label">Username</label>
+          <input type="text" name="username" value="{{ current.get('username', '') }}" placeholder="user@example.com" class="form-input">
+        </div>
+        <div>
+          <label class="field-label" for="smtp_pw">Password</label>
+          <div class="relative">
+            <input type="password" id="smtp_pw" name="password" value="{{ current.get('password', '') }}" placeholder="••••••••" class="form-input has-control">
+            <button type="button" class="password-toggle-btn" onclick="togglePw()">Show</button>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">From Address</label>
+          <input type="text" name="from_addr" value="{{ current.get('from_addr', '') }}" placeholder="ivr@example.com" class="form-input">
+        </div>
+        <div>
+          <label class="field-label">Alert Recipients</label>
+          <input type="text" name="alerts_to" value="{{ current.get('alerts_to', '') }}" placeholder="admin@example.com" class="form-input">
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+        <input type="checkbox" id="starttls" name="starttls" value="1" {% if current.get('starttls', True) %}checked{% endif %}>
+        <span>Enforce STARTTLS (recommended)</span>
       </label>
     </div>
-    <div class="actions">
-      <button type="submit" class="primary">Save</button>
-      <button type="submit" name="test" value="1">Save &amp; test connection</button>
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <a href="/dialplan" class="btn-secondary">Back</a>
+      <div class="flex items-center gap-3 flex-wrap">
+        <a href="/finish" class="btn-secondary btn-sm">Skip</a>
+        <button type="submit" name="test" value="1" class="btn-secondary">Test Mail</button>
+        <button type="submit" class="btn-primary">Continue to Review</button>
+      </div>
     </div>
   </form>
-  <p class="muted">Credentials are stored in <code>data/smtp.json</code> (add it to
-    <code>.gitignore</code> - already done). Voicemail messages are attached as WAV.</p>
-</section>
+</div>
+<script>
+function togglePw() {
+  const i = document.getElementById('smtp_pw');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+</script>
 {% endblock %}

@@ -3,28 +3,105 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}openivr builder{% endblock %}</title>
+  <title>{% block title %}OpenIVR — SIP Configuration Wizard{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-<header>
-  <h1><a href="/">openivr</a> <span class="sub">IVR builder</span></h1>
-  <nav>
-    <a href="/">Dashboard</a>
-    <a href="/build">Flow builder</a>
-    <a href="/media">Media</a>
-    <a href="/smtp">SMTP</a>
-    <a href="/finish">Finish</a>
-  </nav>
-</header>
-<main>
-  {% if request.query_params.get('ok') %}<div class="flash ok">{{ request.query_params.get('ok') }}</div>{% endif %}
+<body class="bg-white text-black min-h-screen flex flex-col font-sans">
+
+<!-- Top nav -->
+<div class="bg-white" style="box-shadow: 0 3px 0 #000;">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="/" class="flex items-center gap-2 text-base font-extrabold tracking-tight text-black no-underline">
+        <span class="w-7 h-7 bg-black text-white flex items-center justify-center text-sm font-black" style="border:2px solid #000;border-radius:6px;">O</span>
+        <span>OpenIVR</span>
+      </a>
+      <span class="text-xs font-bold text-black bg-white px-2 py-1" style="border:2px solid #000;border-radius:6px;">IVR Builder</span>
+    </div>
+    <div class="flex items-center gap-3 text-sm font-semibold flex-shrink-0">
+      <a href="/" class="text-black no-underline">Home</a>
+      <span class="text-black">|</span>
+      <a href="/dialplan" class="text-black no-underline">Docs</a>
+      <span class="text-black">|</span>
+      <a href="https://github.com/vishwas2628/open-ivr" target="_blank" rel="noopener" class="text-black no-underline">GitHub</a>
+    </div>
+  </div>
+</div>
+
+<!-- Steps -->
+<div class="bg-white">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-5">
+    <div class="hidden md:block">
+      <div class="stepper-container">
+        {% for step in steps %}
+        {% set reachable = step in completed or step == current_step %}
+        {% if reachable %}
+        <a href="{{ step_paths[step] }}" {% if step == current_step %}aria-current="step"{% endif %}
+           class="step-item {% if step == current_step %}active{% elif step in completed %}completed{% endif %}">
+          <span class="step-indicator">{% if step in completed %}&#10003;{% else %}{{ loop.index }}{% endif %}</span>
+          <span class="step-label">{{ step_labels[step] }}</span>
+        </a>
+        {% else %}
+        <span class="step-item locked" aria-disabled="true">
+          <span class="step-indicator">{{ loop.index }}</span>
+          <span class="step-label">{{ step_labels[step] }}</span>
+        </span>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div class="md:hidden flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-3 text-xs font-bold">
+        <span class="text-black">Step {{ steps.index(current_step) + 1 if current_step in steps else 1 }} of {{ steps|length }}</span>
+        <span class="text-black">{{ step_labels.get(current_step, current_step) }}</span>
+      </div>
+      {% set _step_idx = steps.index(current_step) if current_step in steps else 0 %}
+      {% set _step_pct = (((_step_idx + 1) / (steps|length) * 100)) if steps|length else 0 %}
+      <div class="w-full bg-white h-3 overflow-hidden" style="border:2px solid #000;border-radius:6px;">
+        <div id="mobile-progress-bar" class="bg-black h-full" data-progress="{{ _step_pct }}" style="width: 0%;"></div>
+      </div>
+      <script>
+        (function () {
+          var bar = document.getElementById('mobile-progress-bar');
+          if (bar && bar.dataset.progress) {
+            bar.style.width = parseFloat(bar.dataset.progress) + '%';
+          }
+        })();
+      </script>
+    </div>
+  </div>
+</div>
+
+<!-- Flash -->
+<div class="max-w-5xl mx-auto px-4 sm:px-6 pt-4 w-full">
+  {% if request.query_params.get('ok') %}
+  <div class="notice-box mb-4">{{ request.query_params.get('ok') }}</div>
+  {% endif %}
+  {% if request.query_params.get('err') %}
+  <div class="notice-box mb-4">{{ request.query_params.get('err') }}</div>
+  {% endif %}
+</div>
+
+<!-- Main -->
+<main class="flex-1 max-w-5xl mx-auto px-4 sm:px-6 py-6 w-full">
   {% block content %}{% endblock %}
 </main>
-<footer>
-  <p>root <code>{{ root }}</code> &middot; ARI {{ config.ari.base_url }} &middot;
-     dial mode <code>{{ config.dial.mode }}</code> &middot; CDR <code>{{ config.cdr.backend }}</code>{% if keep_open %} &middot;
-     <strong>keep-open</strong>{% endif %}</p>
+
+<!-- Footer -->
+<footer class="bg-white mt-10 py-6" style="box-shadow: 0 -3px 0 #000;">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-black">
+    <div class="font-bold text-center sm:text-left">OpenIVR: Simple, Scalable, Reliable Communications.</div>
+    <div class="flex items-center gap-2 font-semibold">
+      <a href="https://github.com/vishwas2628/open-ivr" target="_blank" rel="noopener" class="text-black">Docs</a>
+      <span>|</span>
+      <a href="/media" class="text-black">Audio Library</a>
+      <span>|</span>
+      <a href="/status" target="_blank" rel="noopener" class="text-black">System Status</a>
+    </div>
+  </div>
+  <div class="text-center text-xs text-black mt-2 font-semibold">&copy; 2024 OpenIVR Inc. | Privacy Policy | Terms of Service</div>
 </footer>
+
 </body>
 </html>

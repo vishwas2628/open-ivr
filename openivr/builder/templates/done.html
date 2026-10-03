@@ -1,19 +1,40 @@
 {% extends "base.html" %}
-{% block title %}openivr done{% endblock %}
+{% block title %}OpenIVR — Configuration Applied{% endblock %}
 {% block content %}
-<section class="done">
-  <h2>All set</h2>
-  <p class="good">{{ message }}</p>
-  <p>Next steps:</p>
-  <ol>
-    <li>Prompts were synced into Asterisk's sounds folder by
-        <code>run_ivr.sh</code> (step 3).</li>
-    <li>The IVR service starts under systemd - check it with
-        <code>systemctl status open-ivr</code>.</li>
-    <li>Follow <code>journalctl -u open-ivr -f</code> or
-        <code>tail -f data/logs/openivr.log</code> while you place a test call.</li>
-    <li>CDR rows land in <code>data/logs/cdr.csv</code>.</li>
-  </ol>
-  <p>You can close this browser window.</p>
-</section>
+<div class="max-w-2xl mx-auto py-8 space-y-6 text-center">
+
+  <h1 class="page-title text-4xl">OpenIVR</h1>
+  <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
+
+  <div class="panel-card p-8 space-y-4">
+    <div class="w-12 h-12 bg-black text-white flex items-center justify-center mx-auto text-xl font-black" style="border:2px solid #000;border-radius:999px;">✓</div>
+    <h2 class="page-title text-2xl">Configuration Deployed</h2>
+    <p class="text-sm text-black">{{ message }}</p>
+    {% if publish_info %}
+    <div class="panel-sunken p-4 text-left text-xs space-y-2">
+      <div class="step-eyebrow">Deployment Report</div>
+      <div><strong>Target:</strong> <code>{{ publish_info.get('dest') }}</code></div>
+      <div><strong>Files:</strong> {{ (publish_info.get('files') or [])|join(', ') }}</div>
+      <div><strong>Reload:</strong> {{ publish_info.get('reload_detail') }}</div>
+    </div>
+    {% endif %}
+    <div class="flex flex-wrap justify-center gap-3 pt-2">
+      <a href="/finish" class="btn-secondary">Back to Review</a>
+      <a href="/" class="btn-secondary">Home</a>
+      <a href="https://github.com/vishwas2628/open-ivr" target="_blank" rel="noopener" class="btn-primary">Docs ↗</a>
+    </div>
+  </div>
+
+  <div class="panel-card p-6 space-y-3 text-left">
+    <h2 class="section-title">Next Steps</h2>
+    <ol class="text-xs list-decimal list-inside space-y-2">
+      <li>Check status: <code>systemctl status asterisk</code></li>
+      <li>Logs: <code>journalctl -u open-ivr -f</code></li>
+      <li>CDR: <code>data/logs/cdr.csv</code></li>
+      <li>Restart builder to edit JSON and re-publish.</li>
+    </ol>
+  </div>
+
+  <p class="text-xs font-semibold">OpenIVR: Simple, Scalable, Reliable Communications.</p>
+</div>
 {% endblock %}

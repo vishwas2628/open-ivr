@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}OpenIVR — Step 3: Extensions{% endblock %}
+{% block content %}
+<div class="space-y-6">
+
+  <div class="text-center space-y-2">
+    <h1 class="page-title text-4xl">OpenIVR</h1>
+    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
+    <div class="step-eyebrow pt-2">Step 3 of 6 — Extensions</div>
+    <p class="text-sm text-black max-w-2xl mx-auto">Map internal numbers to endpoints. Single, hunt, or ring-all.</p>
+  </div>
+
+  {% if errors %}
+  <div class="notice-box space-y-2">
+    <div class="notice-title"><span>Validation Error ({{ errors|length }})</span></div>
+    <ul class="text-xs list-disc list-inside space-y-1 pl-1">
+      {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/extensions" class="space-y-6 max-w-3xl mx-auto">
+    <div id="extensions-container" class="space-y-6">
+      {% for ext in extensions %}
+      <div class="ext-card panel-card p-6 space-y-4" data-index="{{ loop.index0 }}">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="badge badge-dark">Ext {{ loop.index }}</span>
+            <span class="text-sm font-bold">Routing</span>
+          </div>
+          <button type="button" onclick="this.closest('.ext-card').remove();" class="btn-danger-subtle">Delete</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label class="field-label">Extension Number *</label>
+            <input type="text" name="ext_number_{{ loop.index0 }}" value="{{ ext.get('number','') }}" required placeholder="1001" pattern="[1-9][0-9]{0,5}" class="form-input font-mono">
+          </div>
+          <div>
+            <label class="field-label">Ring Strategy *</label>
+            <select name="ext_strategy_{{ loop.index0 }}" class="form-select">
+              <option value="single" {% if ext.get('strategy','single') == 'single' %}selected{% endif %}>Single</option>
+              <option value="linear" {% if ext.get('strategy') == 'linear' %}selected{% endif %}>Linear hunt</option>
+              <option value="ringall" {% if ext.get('strategy') == 'ringall' %}selected{% endif %}>Ring all</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">Assigned Endpoints *</label>
+          <div class="panel-sunken p-3 space-y-2 max-h-44 overflow-y-auto">
+            {% set assigned = ext.get('users', []) %}
+            {% for ep in endpoints %}
+            <div class="user-row flex items-center justify-between gap-2 p-2 bg-white" style="border:2px solid #000;border-radius:6px;">
+              <label class="flex items-center gap-2 text-xs font-semibold cursor-pointer min-w-0">
+                <input type="checkbox" class="user-check" data-username="{{ ep.get('username','') }}" {% if ep.get('username','') in assigned %}checked{% endif %}>
+                <span class="font-mono">{{ ep.get('username','') }}</span>
+              </label>
+              <div class="flex items-center gap-1">
+                <button type="button" onclick="moveUser(this, -1)" class="btn-danger-subtle" title="Up">&uarr;</button>
+                <button type="button" onclick="moveUser(this, 1)" class="btn-danger-subtle" title="Down">&darr;</button>
+              </div>
+            </div>
+            {% endfor %}
+            {% if not endpoints %}
+            <p class="text-xs px-1 py-1">No endpoints yet. <a href="/endpoints" class="link">Define endpoints first</a>.</p>
+            {% endif %}
+          </div>
+          <input type="hidden" name="ext_users_{{ loop.index0 }}" class="users-hidden" value="{{ assigned | join(',') }}">
+          <p class="field-help">Tick users. Arrows set hunt order.</p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="text-center">
+      <button type="button" onclick="addExtension()" class="btn-secondary btn-sm">+ Add Extension</button>
+    </div>
+
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <a href="/endpoints" class="btn-secondary">Back</a>
+      <button type="submit" onclick="syncAllUsers()" class="btn-primary">Continue to Dialplan</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const allUsers = {{ (endpoints | map(attribute='username') | list) | tojson if endpoints else '[]' }};
+let extIdx = {{ extensions|length }};
+function userRows() {
+  return allUsers.map(u =>
+    '<div class="user-row flex items-center justify-between gap-2 p-2 bg-white" style="border:2px solid #000;border-radius:6px;">'
+    + '<label class="flex items-center gap-2 text-xs font-semibold cursor-pointer"><input type="checkbox" class="user-check" data-username="' + u + '"><span class="font-mono">' + u + '</span></label>'
+    + '<div class="flex items-center gap-1"><button type="button" onclick="moveUser(this, -1)" class="btn-danger-subtle">&uarr;</button>'
+    + '<button type="button" onclick="moveUser(this, 1)" class="btn-danger-subtle">&darr;</button></div></div>'
+  ).join('');
+}
+function addExtension() {
+  const c = document.getElementById('extensions-container');
+  const idx = extIdx++;
+  const div = document.createElement('div');
+  div.className = 'ext-card panel-card p-6 space-y-4';
+  div.innerHTML = '<div class="flex items-center justify-between gap-3 flex-wrap">'
+    + '<div class="flex items-center gap-2"><span class="badge badge-dark">Ext ' + (idx + 1) + '</span><span class="text-sm font-bold">Routing</span></div>'
+    + '<button type="button" onclick="this.closest(\'.ext-card\').remove();" class="btn-danger-subtle">Delete</button></div>'
+    + '<div class="grid grid-cols-1 md:grid-cols-2 gap-5"><div><label class="field-label">Extension Number *</label>'
+    + '<input type="text" name="ext_number_' + idx + '" required placeholder="100' + (idx + 1) + '" pattern="[1-9][0-9]{0,5}" class="form-input font-mono"></div>'
+    + '<div><label class="field-label">Ring Strategy *</label><select name="ext_strategy_' + idx + '" class="form-select"><option value="single">Single</option><option value="linear">Linear hunt</option><option value="ringall">Ring all</option></select></div></div>'
+    + '<div><label class="field-label">Assigned Endpoints *</label><div class="panel-sunken p-3 space-y-2 max-h-44 overflow-y-auto">' + userRows() + '</div>'
+    + '<input type="hidden" name="ext_users_' + idx + '" class="users-hidden" value=""></div>';
+  c.appendChild(div);
+}
+function moveUser(btn, dir) {
+  const row = btn.closest('.user-row');
+  const s = dir === -1 ? row.previousElementSibling : row.nextElementSibling;
+  if (s) { if (dir === -1) row.parentElement.insertBefore(row, s); else row.parentElement.insertBefore(s, row); }
+}
+function syncAllUsers() {
+  document.querySelectorAll('.ext-card').forEach(card => {
+    const h = card.querySelector('.users-hidden');
+    if (h) h.value = Array.from(card.querySelectorAll('.user-check:checked')).map(c => c.dataset.username).join(',');
+  });
+}
+if (document.querySelectorAll('.ext-card').length === 0) { addExtension(); }
+</script>
+{% endblock %}

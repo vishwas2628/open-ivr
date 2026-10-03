@@ -1,45 +1,58 @@
 {% extends "base.html" %}
-{% block title %}openivr media{% endblock %}
+{% block title %}OpenIVR — Audio Library{% endblock %}
 {% block content %}
-<section>
-  <h2>Upload a prompt</h2>
-  {% if ok %}<p class="good">{{ ok }}</p>{% endif %}
-  {% if err %}<p class="bad">{{ err }}</p>{% endif %}
-  <form method="post" action="/media/upload" enctype="multipart/form-data" class="upload">
-    <input type="file" name="file" accept=".wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.oga,.ogg" required>
-    <button type="submit">Upload</button>
-  </form>
-  <p class="muted">WAV only, up to {{ max_mb }} MB. For best quality convert to
-    8&nbsp;kHz / 16&nbsp;kHz mono 16-bit first:
-    <code>sox input.wav -r 8000 -c 1 -b 16 -t wav welcome.wav</code>.
-    Recognised extensions: {{ allowed }}.</p>
-</section>
+<div class="space-y-6">
 
-<section>
-  <h2>Prompts ({{ files|length }})</h2>
-  {% if not files %}
-    <p class="warn">No audio files yet. See <code>data/sounds/README.md</code> for the
-      recording and conversion guide.</p>
-  {% else %}
-  <table class="files">
-    <thead><tr><th>prompt name</th><th>file</th><th>format</th><th>size</th><th></th></tr></thead>
-    <tbody>
-      {% for f in files %}
-      <tr>
-        <td><code>{{ f.name }}</code></td>
-        <td class="muted">{{ f.relpath }}</td>
-        <td>{{ f.suffix }}</td>
-        <td>{{ '{:,}'.format(f.size) }} B</td>
-        <td>
-          <form method="post" action="/media/delete">
-            <input type="hidden" name="name" value="{{ f.relpath }}">
-            <button type="submit" class="danger small">delete</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-</section>
+  <div class="text-center space-y-2">
+    <h1 class="page-title text-4xl">OpenIVR</h1>
+    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
+    <div class="step-eyebrow pt-2">Audio Prompts Library</div>
+    <p class="text-sm text-black max-w-2xl mx-auto">Greetings, menus, hold music, voicemail. MP3 or WAV.</p>
+  </div>
+
+  {% if ok %}<div class="notice-box max-w-2xl mx-auto">{{ ok }}</div>{% endif %}
+  {% if err %}<div class="notice-box max-w-2xl mx-auto">{{ err }}</div>{% endif %}
+
+  <div class="max-w-2xl mx-auto space-y-6">
+    <div class="panel-card p-6 space-y-4">
+      <h2 class="section-title">Upload Recording</h2>
+      <form method="post" action="/media/upload" enctype="multipart/form-data" class="flex flex-wrap items-center gap-3">
+        <input id="media-file" type="file" name="file" accept=".wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.oga,.ogg" required class="form-input flex-1 min-w-[200px]">
+        <button type="submit" class="btn-primary btn-sm">Upload</button>
+      </form>
+      <p class="field-help">Supported: {{ allowed }}. Max {{ max_mb }}MB. Tip: <code>sox input.wav -r 8000 -c 1 -b 16 output.wav</code></p>
+    </div>
+
+    <div class="panel-card p-6 space-y-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="section-title">Prompts ({{ files|length }})</h2>
+        <a href="/dialplan" class="btn-secondary btn-sm">Back to Dialplan</a>
+      </div>
+      {% if not files %}
+      <p class="text-xs text-center py-6">No recordings yet. Upload above.</p>
+      {% else %}
+      <div class="table-container">
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>File</th><th>Size</th><th></th></tr></thead>
+          <tbody>
+            {% for f in files %}
+            <tr>
+              <td class="font-mono text-xs font-bold">{{ f.name }}</td>
+              <td class="text-xs">{{ f.relpath }}</td>
+              <td class="text-xs">{{ '{:,}'.format(f.size) }} B</td>
+              <td class="text-center">
+                <form method="post" action="/media/delete" onsubmit="return confirm('Delete {{ f.name }}?');">
+                  <input type="hidden" name="name" value="{{ f.relpath }}">
+                  <button type="submit" class="btn-danger-subtle" title="Delete">X</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
 {% endblock %}

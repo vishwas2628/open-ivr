@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}OpenIVR — Step 2: User Endpoints{% endblock %}
+{% block content %}
+<div class="space-y-6">
+
+  <div class="text-center space-y-2">
+    <h1 class="page-title text-4xl">OpenIVR</h1>
+    <p class="text-sm text-black font-medium">Get Started with OpenIVR</p>
+    <div class="step-eyebrow pt-2">Step 2 of 6 — Endpoints</div>
+    <p class="text-sm text-black max-w-2xl mx-auto">Device accounts for softphones and desk phones (up to 50 users).</p>
+  </div>
+
+  {% if errors %}
+  <div class="notice-box space-y-2">
+    <div class="notice-title"><span>Validation Error ({{ errors|length }})</span></div>
+    <ul class="text-xs list-disc list-inside space-y-1 pl-1">
+      {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/endpoints" class="space-y-6 max-w-3xl mx-auto">
+    <div class="panel-card p-6 space-y-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="section-title">Endpoint Accounts</h2>
+        <span id="endpoint-count" class="badge badge-dark">{{ endpoints|length }} / 50</span>
+      </div>
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Username *</th>
+              <th>Password *</th>
+              <th>Display Name</th>
+              <th>Protocol</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="endpoints-body">
+            {% for ep in endpoints %}
+            <tr class="endpoint-row">
+              <td><input type="text" name="username" value="{{ ep.get('username','') }}" required placeholder="1001" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}" class="form-input-sm font-mono"></td>
+              <td>
+                <div class="relative">
+                  <input type="password" id="pw_{{ loop.index0 }}" name="password" value="{{ ep.get('password','') }}" required placeholder="Secret" class="form-input-sm has-control font-mono">
+                  <button type="button" class="password-toggle-btn" onclick="togglePassword(this, 'pw_{{ loop.index0 }}')">Show</button>
+                </div>
+              </td>
+              <td><input type="text" name="display_name" value="{{ ep.get('display_name','') }}" placeholder="Alice" class="form-input-sm"></td>
+              <td>
+                <select name="protocol" class="form-select-sm">
+                  <option value="pjsip" {% if ep.get('protocol','pjsip') == 'pjsip' %}selected{% endif %}>PJSIP</option>
+                  <option value="iax" {% if ep.get('protocol') == 'iax' %}selected{% endif %}>IAX2</option>
+                </select>
+              </td>
+              <td class="text-center">
+                <button type="button" onclick="this.closest('tr').remove(); updateCount();" class="btn-danger-subtle" title="Delete">X</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <button type="button" onclick="addRow()" class="btn-secondary btn-sm">+ Add Endpoint</button>
+        <span class="field-help">At least one endpoint is required.</span>
+      </div>
+    </div>
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <a href="/trunk" class="btn-secondary">Back</a>
+      <button type="submit" class="btn-primary">Continue to Extensions</button>
+    </div>
+  </form>
+</div>
+
+<script>
+let rowSeq = {{ endpoints|length }};
+function updateCount() {
+  document.getElementById('endpoint-count').textContent = document.querySelectorAll('.endpoint-row').length + ' / 50';
+}
+function togglePassword(btn, id) {
+  const i = document.getElementById(id);
+  if (!i) return;
+  i.type = i.type === 'password' ? 'text' : 'password';
+  btn.textContent = i.type === 'password' ? 'Show' : 'Hide';
+}
+function addRow() {
+  const tbody = document.getElementById('endpoints-body');
+  if (document.querySelectorAll('.endpoint-row').length >= 50) { alert('Max 50 endpoints.'); return; }
+  rowSeq++;
+  const n = document.querySelectorAll('.endpoint-row').length + 1;
+  const tr = document.createElement('tr');
+  tr.className = 'endpoint-row';
+  tr.innerHTML = '<td><input type="text" name="username" required placeholder="100' + n + '" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}" class="form-input-sm font-mono"></td>'
+    + '<td><div class="relative"><input type="password" id="pw_' + rowSeq + '" name="password" required placeholder="Secret" class="form-input-sm has-control font-mono">'
+    + '<button type="button" class="password-toggle-btn" onclick="togglePassword(this, \'pw_' + rowSeq + '\')">Show</button></div></td>'
+    + '<td><input type="text" name="display_name" placeholder="Agent ' + n + '" class="form-input-sm"></td>'
+    + '<td><select name="protocol" class="form-select-sm"><option value="pjsip">PJSIP</option><option value="iax">IAX2</option></select></td>'
+    + '<td class="text-center"><button type="button" onclick="this.closest(\'tr\').remove(); updateCount();" class="btn-danger-subtle">X</button></td>';
+  tbody.appendChild(tr);
+  updateCount();
+}
+if (document.querySelectorAll('.endpoint-row').length === 0) { addRow(); }
+</script>
+{% endblock %}

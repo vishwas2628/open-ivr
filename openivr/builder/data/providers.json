@@ -1,0 +1,427 @@
+{
+  "countries": [
+    {"id": "IN", "name": "India", "dial_code": "+91"},
+    {"id": "US", "name": "United States", "dial_code": "+1"},
+    {"id": "GB", "name": "United Kingdom", "dial_code": "+44"},
+    {"id": "AU", "name": "Australia", "dial_code": "+61"},
+    {"id": "CA", "name": "Canada", "dial_code": "+1"},
+    {"id": "DE", "name": "Germany", "dial_code": "+49"},
+    {"id": "SG", "name": "Singapore", "dial_code": "+65"},
+    {"id": "AE", "name": "United Arab Emirates", "dial_code": "+971"},
+    {"id": "ANY", "name": "Any / global", "dial_code": ""}
+  ],
+  "providers": [
+    {
+      "id": "bsnl_wings",
+      "name": "BSNL Wings",
+      "countries": ["IN"],
+      "auth_type": "registration",
+      "host_fqdn": "ims.bsnl.in",
+      "transport": "transport-udp",
+      "registration_uri_required": true,
+      "match": ["117.239.0.0/16", "218.248.0.0/16", "59.90.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Inbound DID / Wings number", "required": true, "placeholder": "91XXXXXXXXXX", "help": "The number callers dial. Used only to label the inbound trunk."},
+        {"id": "username", "label": "SIP username", "required": true, "placeholder": "wings_user", "help": "From the Wings SIP credentials screen."},
+        {"id": "password", "label": "SIP password", "required": true, "type": "password", "help": "Keep this private. Stored in data/trunk.json."},
+        {"id": "registration_uri", "label": "Registration URI", "required": true, "placeholder": "sip:wings_user@ims.bsnl.in", "help": "Mandatory for Wings. Usually sip:<username>@ims.bsnl.in"}
+      ],
+      "purchase": {
+        "summary": "Wings is BSNL's SIP/IMS service. Buy a Wings number, enable SIP credentials, then register Asterisk to ims.bsnl.in.",
+        "steps": [
+          "Open the Wings app or BSNL Wings portal and sign in.",
+          "Buy or port a number for inbound calls.",
+          "Enable SIP / IMS credentials and copy username, password, and registrar.",
+          "If BSNL gives extra proxy IPs, add them under extra match IPs below."
+        ],
+        "links": [
+          {"label": "BSNL Wings", "url": "https://wings.bsnl.co.in/"},
+          {"label": "openivr Asterisk setup", "url": "https://github.com/vishwas2628/open-ivr/blob/main/docs/asterisk-setup.md"}
+        ]
+      },
+      "examples": {
+        "username": "91xxxxxxxxxx",
+        "registration_uri": "sip:91xxxxxxxxxx@ims.bsnl.in",
+        "inbound_number": "91xxxxxxxxxx"
+      },
+      "tips": [
+        "Wings is registration-based. Do not skip the registration URI.",
+        "Allow UDP 5060 and your RTP range (default 10000-20000) on the firewall."
+      ]
+    },
+    {
+      "id": "jio_sip",
+      "name": "Jio SIP trunk",
+      "countries": ["IN"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.jio.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["49.40.0.0/16", "49.44.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Inbound DID", "required": true, "placeholder": "91XXXXXXXXXX", "help": "Enterprise DID Jio assigned you."},
+        {"id": "username", "label": "SIP username (if issued)", "required": false, "help": "Leave blank when Jio authenticates by IP only."},
+        {"id": "password", "label": "SIP password (if issued)", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false, "help": "Only if Jio asked you to REGISTER. Most Jio trunks are IP-based."}
+      ],
+      "purchase": {
+        "summary": "Jio enterprise SIP trunks are usually IP-authenticated. Give Jio this server's public IP, then match their signalling IPs inbound.",
+        "steps": [
+          "Talk to Jio Business / JioMeet enterprise for a SIP trunk.",
+          "Share this PBX public IP and ask for their signalling IP ranges.",
+          "Paste those ranges into Extra match IPs if they differ from the defaults."
+        ],
+        "links": [
+          {"label": "Jio Business", "url": "https://www.jio.com/business"},
+          {"label": "openivr help", "url": "https://github.com/vishwas2628/open-ivr"}
+        ]
+      },
+      "examples": {
+        "inbound_number": "9122xxxxxxx",
+        "host_fqdn": "sip.jio.com"
+      },
+      "tips": [
+        "IP-based trunks need accurate match= CIDRs or inbound INVITEs are rejected.",
+        "Ask Jio whether they send calls from multiple SBC IPs."
+      ]
+    },
+    {
+      "id": "airtel_sip",
+      "name": "Airtel SIP trunk",
+      "countries": ["IN"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.airtel.in",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["182.19.0.0/16", "125.16.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Inbound DID", "required": true, "placeholder": "91XXXXXXXXXX"},
+        {"id": "username", "label": "SIP username", "required": false},
+        {"id": "password", "label": "SIP password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false}
+      ],
+      "purchase": {
+        "summary": "Airtel business SIP / PRIs-over-SIP are typically IP-authenticated from Airtel SBCs.",
+        "steps": [
+          "Order an Airtel business SIP trunk.",
+          "Give them this server's public IP.",
+          "Copy the SBC IPs they send in the welcome letter into match=."
+        ],
+        "links": [
+          {"label": "Airtel Business", "url": "https://www.airtel.in/business/"},
+          {"label": "openivr docs", "url": "https://github.com/vishwas2628/open-ivr/blob/main/docs/getting-started.md"}
+        ]
+      },
+      "examples": {"inbound_number": "9111xxxxxxx"},
+      "tips": ["Confirm codec: ulaw/alaw is what this skeleton allows."]
+    },
+    {
+      "id": "tata_tele",
+      "name": "Tata Tele SIP",
+      "countries": ["IN"],
+      "auth_type": "registration",
+      "host_fqdn": "sip.tatateleservices.com",
+      "transport": "transport-udp",
+      "registration_uri_required": true,
+      "match": ["203.101.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Inbound DID", "required": true},
+        {"id": "username", "label": "SIP username", "required": true},
+        {"id": "password", "label": "SIP password", "required": true, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": true, "placeholder": "sip:user@sip.tatateleservices.com"}
+      ],
+      "purchase": {
+        "summary": "Tata Teleservices / Tata Tele Business Services issue registration credentials for many SME trunks.",
+        "steps": ["Order a SIP trunk.", "Copy registrar, username, password from the provisioning mail."],
+        "links": [{"label": "Tata Tele Business", "url": "https://www.tatatelebusiness.com/"}]
+      },
+      "examples": {"registration_uri": "sip:user@sip.tatateleservices.com"},
+      "tips": ["If they give a proxy different from the registrar, put the registrar in Registration URI."]
+    },
+    {
+      "id": "exotel",
+      "name": "Exotel",
+      "countries": ["IN"],
+      "auth_type": "registration",
+      "host_fqdn": "sip.exotel.com",
+      "transport": "transport-udp",
+      "registration_uri_required": true,
+      "match": ["52.66.0.0/16", "13.232.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Exotel virtual number", "required": true},
+        {"id": "username", "label": "SIP username", "required": true},
+        {"id": "password", "label": "SIP password", "required": true, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": true, "placeholder": "sip:user@sip.exotel.com"}
+      ],
+      "purchase": {
+        "summary": "Buy a virtual number in the Exotel dashboard, then create a SIP trunk / endpoint.",
+        "steps": ["Create an Exotel account.", "Buy a number in your city.", "Create SIP credentials and paste them here."],
+        "links": [{"label": "Exotel", "url": "https://exotel.com/"}]
+      },
+      "examples": {"username": "exotel_sip_user"},
+      "tips": ["Exotel IPs change; add every signalling IP they list."]
+    },
+    {
+      "id": "plivo",
+      "name": "Plivo",
+      "countries": ["IN", "US", "ANY"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.plivo.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["13.127.0.0/16", "52.2.0.0/16", "54.172.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Inbound DID", "required": true},
+        {"id": "username", "label": "Auth username", "required": false},
+        {"id": "password", "label": "Auth password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false}
+      ],
+      "purchase": {
+        "summary": "Buy a Plivo number, point the application SIP URI at this PBX, and allow Plivo signalling IPs.",
+        "steps": ["Create a Plivo account.", "Buy a number.", "Set the answer URL / SIP trunk to this server."],
+        "links": [
+          {"label": "Plivo SIP", "url": "https://www.plivo.com/docs/voice/concepts/sip-endpoints/"},
+          {"label": "openivr", "url": "https://github.com/vishwas2628/open-ivr"}
+        ]
+      },
+      "examples": {"inbound_number": "+14155550100"},
+      "tips": ["Plivo publishes signalling IP lists — copy them into Extra match IPs."]
+    },
+    {
+      "id": "twilio",
+      "name": "Twilio Elastic SIP",
+      "countries": ["US", "GB", "AU", "CA", "DE", "SG", "AE", "IN", "ANY"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.twilio.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["54.172.60.0/23", "54.244.51.0/24", "54.171.127.192/27", "35.156.191.128/25"],
+      "fields": [
+        {"id": "inbound_number", "label": "Twilio number (E.164)", "required": true, "placeholder": "+14155550100"},
+        {"id": "username", "label": "Termination username", "required": false, "help": "From Elastic SIP Trunk termination, if using credential lists."},
+        {"id": "password", "label": "Termination password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false, "help": "Twilio trunks are usually IP ACL, not REGISTER."}
+      ],
+      "purchase": {
+        "summary": "Create an Elastic SIP Trunk in Twilio, add this PBX IP to the ACL, and buy a number on that trunk.",
+        "steps": [
+          "Open Twilio Console → Elastic SIP Trunking.",
+          "Create a trunk. Add origination URI sip:<your-public-ip>.",
+          "Add your public IP to the IP ACL (or a credential list).",
+          "Buy a number and assign it to the trunk."
+        ],
+        "links": [
+          {"label": "Twilio Elastic SIP", "url": "https://www.twilio.com/docs/sip-trunking"},
+          {"label": "Twilio signalling IPs", "url": "https://www.twilio.com/docs/sip-trunking/ip-addresses"}
+        ]
+      },
+      "examples": {
+        "inbound_number": "+14155550100",
+        "host_fqdn": "yourdomain.pstn.twilio.com"
+      },
+      "tips": [
+        "Put the Twilio origination SIP domain in Host FQDN if they gave you one.",
+        "Keep match= in sync with Twilio's published signalling ranges."
+      ]
+    },
+    {
+      "id": "telnyx",
+      "name": "Telnyx",
+      "countries": ["US", "GB", "CA", "DE", "AU", "ANY"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.telnyx.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["192.76.120.0/24", "64.16.250.0/24"],
+      "fields": [
+        {"id": "inbound_number", "label": "Telnyx DID", "required": true, "placeholder": "+1..."},
+        {"id": "username", "label": "SIP connection username", "required": false},
+        {"id": "password", "label": "SIP connection password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false}
+      ],
+      "purchase": {
+        "summary": "Create a Telnyx SIP connection (IP or credentials), buy a number, attach it.",
+        "steps": ["Create a SIP connection.", "Allow this PBX IP or set credentials.", "Order a number and assign the connection."],
+        "links": [{"label": "Telnyx SIP", "url": "https://developers.telnyx.com/docs/voice/sip-trunking"}]
+      },
+      "examples": {"host_fqdn": "sip.telnyx.com"},
+      "tips": ["Telnyx can do credential auth; fill username/password if you chose that."]
+    },
+    {
+      "id": "vonage",
+      "name": "Vonage (Nexmo)",
+      "countries": ["US", "GB", "DE", "AU", "ANY"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.nexmo.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["173.193.199.0/24", "174.37.245.0/24"],
+      "fields": [
+        {"id": "inbound_number", "label": "Vonage number", "required": true},
+        {"id": "username", "label": "SIP username", "required": false},
+        {"id": "password", "label": "SIP password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false}
+      ],
+      "purchase": {
+        "summary": "Buy a Vonage virtual number and point SIP interconnect at this PBX.",
+        "steps": ["Create a Vonage account.", "Buy a number.", "Configure SIP forwarding to this host."],
+        "links": [{"label": "Vonage SIP", "url": "https://developer.vonage.com/en/voice/sip/overview"}]
+      },
+      "examples": {},
+      "tips": ["Confirm the interconnect region; host_fqdn may be regional."]
+    },
+    {
+      "id": "voipms",
+      "name": "VoIP.ms",
+      "countries": ["US", "CA", "ANY"],
+      "auth_type": "registration",
+      "host_fqdn": "dallas.voip.ms",
+      "transport": "transport-udp",
+      "registration_uri_required": true,
+      "match": ["208.100.60.0/24", "107.191.42.0/24"],
+      "fields": [
+        {"id": "inbound_number", "label": "DID", "required": true},
+        {"id": "username", "label": "Sub-account username", "required": true},
+        {"id": "password", "label": "Sub-account password", "required": true, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": true, "placeholder": "sip:123456@dallas.voip.ms"}
+      ],
+      "purchase": {
+        "summary": "Create a VoIP.ms sub-account, pick a POP close to you, buy a DID.",
+        "steps": ["Create a sub-account with a strong password.", "Set device type to Asterisk.", "Order a DID and route it to the sub-account."],
+        "links": [{"label": "VoIP.ms Asterisk", "url": "https://wiki.voip.ms/article/Asterisk"}]
+      },
+      "examples": {"registration_uri": "sip:100000_sub@dallas.voip.ms", "host_fqdn": "dallas.voip.ms"},
+      "tips": ["Use the POP hostname (dallas, montreal, london, …) as Host FQDN."]
+    },
+    {
+      "id": "sipus",
+      "name": "SIP.US",
+      "countries": ["US", "ANY"],
+      "auth_type": "registration",
+      "host_fqdn": "gw1.sip.us",
+      "transport": "transport-udp",
+      "registration_uri_required": true,
+      "match": ["65.60.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "DID", "required": true},
+        {"id": "username", "label": "Trunk username", "required": true},
+        {"id": "password", "label": "Trunk password", "required": true, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": true, "placeholder": "sip:user@gw1.sip.us"}
+      ],
+      "purchase": {
+        "summary": "Sign up at SIP.US, create a trunk, buy DIDs.",
+        "steps": ["Create a trunk in the portal.", "Copy username/password.", "Assign DIDs to the trunk."],
+        "links": [{"label": "SIP.US", "url": "https://www.sip.us/"}]
+      },
+      "examples": {"host_fqdn": "gw1.sip.us"},
+      "tips": ["gw1 and gw2 are both valid; use the one they assigned."]
+    },
+    {
+      "id": "callcentric",
+      "name": "Callcentric",
+      "countries": ["US", "ANY"],
+      "auth_type": "registration",
+      "host_fqdn": "callcentric.com",
+      "transport": "transport-udp",
+      "registration_uri_required": true,
+      "match": ["204.11.192.0/24", "66.193.176.0/24"],
+      "fields": [
+        {"id": "inbound_number", "label": "Callcentric number", "required": true},
+        {"id": "username", "label": "SIP username (1777xxxxxxx)", "required": true},
+        {"id": "password", "label": "SIP password", "required": true, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": true, "placeholder": "sip:1777xxxxxxx@callcentric.com"}
+      ],
+      "purchase": {
+        "summary": "Register at Callcentric, create a SIP account, optional DID.",
+        "steps": ["Create an account.", "Note the 1777 username.", "Buy a DID if you need inbound PSTN."],
+        "links": [{"label": "Callcentric Asterisk", "url": "https://www.callcentric.com/support/device/asterisk"}]
+      },
+      "examples": {"username": "17771234567", "registration_uri": "sip:17771234567@callcentric.com"},
+      "tips": ["Callcentric publishes several match IPs — keep them all."]
+    },
+    {
+      "id": "didww",
+      "name": "DIDWW",
+      "countries": ["US", "GB", "DE", "AU", "SG", "AE", "ANY"],
+      "auth_type": "ip",
+      "host_fqdn": "out.didww.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["46.19.209.0/24", "185.238.172.0/24"],
+      "fields": [
+        {"id": "inbound_number", "label": "DIDWW number", "required": true},
+        {"id": "username", "label": "SIP username", "required": false},
+        {"id": "password", "label": "SIP password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false}
+      ],
+      "purchase": {
+        "summary": "Buy a DIDWW number, create a voice IN trunk pointing at this PBX IP.",
+        "steps": ["Create a voice IN trunk with your public IP.", "Buy a DID and assign the trunk."],
+        "links": [{"label": "DIDWW SIP", "url": "https://doc.didww.com/"}]
+      },
+      "examples": {},
+      "tips": ["DIDWW signalling hosts are listed in their docs — paste extras below."]
+    },
+    {
+      "id": "flowroute",
+      "name": "Flowroute",
+      "countries": ["US", "CA", "ANY"],
+      "auth_type": "ip",
+      "host_fqdn": "sip.flowroute.com",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": ["216.115.69.0/24", "70.167.0.0/16"],
+      "fields": [
+        {"id": "inbound_number", "label": "Flowroute DID", "required": true},
+        {"id": "username", "label": "Tech prefix / username", "required": false},
+        {"id": "password", "label": "Password", "required": false, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false}
+      ],
+      "purchase": {
+        "summary": "Add this PBX IP as a Flowroute route, buy DIDs, set the preferred POP.",
+        "steps": ["Add an IP alias in Flowroute.", "Order DIDs.", "Set inbound route to that alias."],
+        "links": [{"label": "Flowroute SIP", "url": "https://developer.flowroute.com/"}]
+      },
+      "examples": {},
+      "tips": ["Outbound often uses a tech prefix; username can hold that prefix."]
+    },
+    {
+      "id": "custom",
+      "name": "Custom / other provider",
+      "countries": ["IN", "US", "GB", "AU", "CA", "DE", "SG", "AE", "ANY"],
+      "auth_type": "registration",
+      "host_fqdn": "",
+      "transport": "transport-udp",
+      "registration_uri_required": false,
+      "match": [],
+      "fields": [
+        {"id": "inbound_number", "label": "Inbound DID / mobile number", "required": true, "help": "Number callers dial. Configuration only."},
+        {"id": "username", "label": "SIP username", "required": true},
+        {"id": "password", "label": "SIP password", "required": true, "type": "password"},
+        {"id": "registration_uri", "label": "Registration URI", "required": false, "help": "Required for REGISTER-based PBX (like Wings). Leave empty for IP authentication."},
+        {"id": "host_fqdn", "label": "Host / registrar FQDN", "required": true, "placeholder": "sip.provider.example"}
+      ],
+      "purchase": {
+        "summary": "Use this when your carrier is not listed. Copy host, credentials, and signalling IPs from their SIP sheet.",
+        "steps": [
+          "Get the SIP spec from the provider (host, port, auth type, codecs).",
+          "If they REGISTER, fill Registration URI as sip:user@host.",
+          "If they authenticate by IP, leave Registration URI empty and list every signalling CIDR."
+        ],
+        "links": [
+          {"label": "openivr Asterisk setup", "url": "https://github.com/vishwas2628/open-ivr/blob/main/docs/asterisk-setup.md"},
+          {"label": "PJSIP wiki", "url": "https://docs.asterisk.org/Configuration/Channel-Drivers/SIP/Configuring-res_pjsip/"}
+        ]
+      },
+      "examples": {
+        "username": "trunkuser",
+        "registration_uri": "sip:trunkuser@sip.provider.example",
+        "host_fqdn": "sip.provider.example"
+      },
+      "tips": [
+        "match= must list the IPs the provider sends INVITEs from.",
+        "ulaw and alaw are enabled on the trunk template."
+      ]
+    }
+  ]
+}
