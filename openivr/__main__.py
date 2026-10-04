@@ -3,8 +3,11 @@
 Commands
 --------
 ``run``        start the IVR (default)
-``verify``     check config, flow, sounds, ARI, ports - the step run_ivr.sh runs
-``builder``    start the FastAPI IVR builder (normally run_ivr.sh does this)
+``verify``     check config, flow, sounds, ARI, ports ('make verify')
+``builder``    start the FastAPI IVR builder ('make builder')
+``publish``    render the Asterisk configs and deploy them (make deploy)
+``config``     inspect / bootstrap config.yaml and write secrets into it
+``creds``      reset the builder login (new random password, printed once)
 ``originate``  place a single outgoing test call
 ``flow``       validate / show / render a flow document
 ``sounds``     list the available prompts
@@ -15,6 +18,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import socket
 import sys
 import urllib.error
@@ -27,8 +31,10 @@ from .config import Config, ConfigError, load_config
 from .flow import Flow, FlowError, menu_tree, validate
 from .media import available_sounds, list_sound_files
 
+DEFAULT_ROOT_ARG = Path(__file__).resolve().parent.parent
+
 BANNER_ROWS: tuple[str, ...] = (
-    "██████╗ ██████╗ ███████╗███╗   ██╗      ██╗██╗   ██╗██████╗",
+     "██████╗ ██████╗ ███████╗███╗   ██╗      ██╗██╗   ██╗██████╗",
     "██╔═══██╗██╔══██╗██╔════╝████╗  ██║      ██║██║   ██║██╔══██╗",
     "██║   ██║██████╔╝█████╗  ██╔██╗ ██║█████╗██║██║   ██║██████╔╝",
     "██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║╚════╝██║╚██╗ ██╔╝██╔══██╗",
@@ -92,7 +98,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     from .logging_setup import setup_logging
     from .runner import Service
 
-    cfg = load_config(args.root)
+    cfg = load_config(args.root, bootstrap=True)
     log = setup_logging(cfg)
     print(gradient_banner() if sys.stdout.isatty() else BANNER)
     log.info("openivr %s starting (root=%s)", _version(), cfg.root)
@@ -108,7 +114,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_verify(args: argparse.Namespace) -> int:
     checks: list[Check] = []
     try:
-        cfg = load_config(args.root)
+        cfg = load_config(args.root, bootstrap=True)
     except ConfigError as exc:
         print(f"FAIL  configuration: {exc}")
         return 1
@@ -230,16 +236,169 @@ def _port_checks(cfg: Config) -> list[Check]:
     return checks
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    """config show|path|bootstrap|get|set - the YAML-aware config.yaml editor.
+
+    The installer uses ``config set`` (30-ari.sh, 60-database.sh) so secrets
+    land in config.yaml without hand-editing YAML or losing comments.
+    """
+    from .config import (
+        bootstrap_config,
+        config_path,
+        read_config_value,
+        set_config_value,
+    )
+
+    root = Path(args.root) if args.root else Path(os.environ.get("OPENIVR_ROOT") or DEFAULT_ROOT_ARG)
+    root = root.resolve()
+
+    if args.action == "path":
+        print(config_path(root))
+        return 0
+
+    if args.action == "bootstrap":
+        path = bootstrap_config(root)
+        print(f"config.yaml ready: {path} (mode 0600)")
+        return 0
+
+    if args.action == "show":
+        cfg = load_config(root, bootstrap=True)
+        print(f"root      : {cfg.root}")
+        print(f"sources   : {', '.join(cfg.sources)}")
+        print(f"config.yaml: {config_path(root)}")
+        print(f"ari       : {cfg.ari.username}@{cfg.ari.base_url} "
+              f"({'password set' if cfg.ari.password else 'NO PASSWORD'})")
+        print(f"builder   : {cfg.builder.username or '(unset)'} "
+              f"({'password set' if cfg.builder.password_hash else 'no password'}) "
+              f"company={cfg.builder.company_name or '(unset)'}")
+        print(f"database  : {cfg.cdr.postgres.user}@{cfg.cdr.postgres.host}"
+              f"/{cfg.cdr.postgres.dbname} "
+              f"({'password set' if cfg.cdr.postgres.password else 'no password'})")
+        print(f"smtp      : {'enabled' if cfg.smtp.enabled else 'disabled'}")
+        return 0
+
+    if args.action == "get":
+        if not args.items:
+            print("config get needs a key (e.g. ari.password)", file=sys.stderr)
+            return 2
+        value = read_config_value(root, args.items[0], None)
+        if value is None or value == "":
+            print(f"{args.items[0]} is not set", file=sys.stderr)
+            return 1
+        print(value if not isinstance(value, (dict, list)) else json.dumps(value))
+        return 0
+
+    if args.action == "set":
+        if not args.items:
+            print("config set needs KEY=VALUE (e.g. ari.password=s3cret)", file=sys.stderr)
+            return 2
+        for assignment in args.items:
+            key, _, raw = assignment.partition("=")
+            if not key:
+                print(f"invalid assignment {assignment!r}", file=sys.stderr)
+                return 2
+            parsed: object = raw
+            if raw.lower() in {"true", "false"}:
+                parsed = raw.lower() == "true"
+            elif raw.lstrip("-").isdigit():
+                parsed = int(raw)
+            elif not raw:
+                parsed = ""
+            set_config_value(root, key.strip(), parsed)
+            print(f"{key.strip()} written to {config_path(root)}")
+        return 0
+
+    print(f"unknown config action {args.action!r}", file=sys.stderr)
+    return 2
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    from .builder.publish import publish
+
+    root = Path(args.root or os.environ.get("OPENIVR_ROOT") or DEFAULT_ROOT_ARG).resolve()
+    dest = Path(args.dest).resolve() if args.dest else None
+    result = publish(root, dest=dest, reload=not args.no_reload)
+    for name in result["files"]:
+        print(f"  rendered {name}")
+    print(f"staging   : {result['staging']}")
+    print(f"deployed  : {result['dest']}")
+    if result.get("copy_error"):
+        print(f"deploy failed: {result['copy_error']}", file=sys.stderr)
+        return 1
+    print(f"reload    : {'ok' if result['reload_ok'] else 'skipped/failed'} ({result['reload_detail']})")
+    return 0 if result["reload_ok"] or result["reload_detail"] == "skipped" else 1
+
+
+def cmd_creds(args: argparse.Namespace) -> int:
+    """Reset the builder login: new password, printed exactly once."""
+    from .builder.auth import (
+        AuthError,
+        generate_password,
+        hash_password,
+        load_auth,
+        save_credentials,
+    )
+    from .config import config_path
+
+    root = Path(args.root or os.environ.get("OPENIVR_ROOT") or DEFAULT_ROOT_ARG).resolve()
+    cfg = load_config(root, bootstrap=True)
+    auth = load_auth(cfg.root, cfg, provision=False)
+    password = args.password or generate_password()
+    if len(password) < 8:
+        print("password must be at least 8 characters", file=sys.stderr)
+        return 2
+    username = args.username or auth.username
+    try:
+        save_credentials(root, auth, username=username, password_hash=hash_password(password))
+    except AuthError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 1
+    print(f"builder login updated in {config_path(root)}")
+    print(f"  username: {auth.username}")
+    print(f"  password: {password}")
+    print("This password is shown only once - store it now.")
+    return 0
+
+
 def cmd_builder(args: argparse.Namespace) -> int:
-    cfg = load_config(args.root)
+    cfg = load_config(args.root, bootstrap=True)
     if args.host is None:
         args.host = "127.0.0.1"
     if args.port is None:
         args.port = 8090
+
+    root = cfg.root
+    standalone = not (root / "system.json").is_file()
+    company = str(getattr(cfg.builder, "company_name", "") or "").strip()
+    if args.company:
+        company = args.company.strip()
+    if not company and sys.stdin.isatty() and not args.no_prompt:
+        # plan: ask once for the company name, then remember it in config.yaml
+        try:
+            answer = input("Company or site name (blank to skip): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer:
+            company = answer
+            from .config import set_config_value
+
+            set_config_value(root, "builder.company_name", company)
+
     print(f"openivr builder on http://{args.host}:{args.port} (config: {', '.join(cfg.sources)})")
+    if standalone:
+        print()
+        print("  standalone mode: no system.json found - Asterisk was never installed here")
+        print("  everything in the builder works; only 'Deploy to Asterisk' is unavailable")
+        print(f"  run 'sudo make install' in {root} to install the system side")
     from .builder.server import serve
 
-    serve(host=args.host, port=args.port, root=cfg.root, keep_open=args.keep_open)
+    serve(
+        host=args.host,
+        port=args.port,
+        root=root,
+        keep_open=args.keep_open,
+        standalone=standalone,
+    )
     return 0
 
 
@@ -346,10 +505,33 @@ def build_parser() -> argparse.ArgumentParser:
     ver_p.set_defaults(func=cmd_verify)
 
     bld_p = sub.add_parser("builder", help="start the web IVR builder")
-    bld_p.add_argument("--host", default=None)
-    bld_p.add_argument("--port", type=int, default=None)
+    bld_p.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    bld_p.add_argument("--port", type=int, default=None, help="TCP port (default 8090)")
     bld_p.add_argument("--keep-open", action="store_true", help="do not stop after a build")
+    bld_p.add_argument("--company", default=None, help="company/site name shown in the UI")
+    bld_p.add_argument(
+        "--no-prompt", action="store_true", help="never ask interactively (scripts, CI)"
+    )
     bld_p.set_defaults(func=cmd_builder)
+
+    pub_p = sub.add_parser("publish", help="render + deploy the Asterisk config")
+    pub_p.add_argument("--dest", default=None, help="target conf dir (default /etc/asterisk)")
+    pub_p.add_argument("--no-reload", action="store_true", help="copy the files but skip the reload")
+    pub_p.set_defaults(func=cmd_publish)
+
+    cfg_p = sub.add_parser("config", help="inspect / edit config.yaml")
+    cfg_p.add_argument(
+        "action",
+        choices=["show", "path", "bootstrap", "get", "set"],
+        help="show = summary, path = config.yaml location, bootstrap = create it",
+    )
+    cfg_p.add_argument("items", nargs="*", help="KEY for 'get', KEY=VALUE pairs for 'set'")
+    cfg_p.set_defaults(func=cmd_config)
+
+    cred_p = sub.add_parser("creds", help="reset the builder login")
+    cred_p.add_argument("--username", default=None, help="new username (default: keep current)")
+    cred_p.add_argument("--password", default=None, help="new password (default: random)")
+    cred_p.set_defaults(func=cmd_creds)
 
     org_p = sub.add_parser("originate", help="place a single outgoing call")
     org_p.add_argument("--to", required=True, help="dial string, e.g. PJSIP/1001 or SIP/trunk/…")

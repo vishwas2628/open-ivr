@@ -4,7 +4,7 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <div class="step-eyebrow pt-2">Step 6 of 6 — Review &amp; Publish</div>
+    <div class="step-eyebrow pt-2">Step {{ steps.index('finish') + 1 }} of {{ steps|length }} — Review &amp; Publish</div>
     <p class="text-sm text-black max-w-2xl mx-auto">Verify, finalize JSON, then deploy to Asterisk.</p>
   </div>
 
@@ -62,19 +62,42 @@
       <div class="font-bold text-sm">{{ (ivr.get('menus') or {})|length }} menu(s) &middot; Entry: <code>{{ ivr.get('start_menu','main') }}</code></div>
       {% else %}<div class="text-xs italic">Not configured.</div>{% endif %}
     </div>
+    <div class="panel-card p-5 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2"><span class="badge badge-dark">5</span><span class="text-xs font-bold uppercase">Permissions</span></div>
+        <a href="/permissions" class="link text-xs">Edit</a>
+      </div>
+      <div class="text-xs">
+        Recording: {% if permissions.recording_enabled %}
+          <strong>on</strong> &rarr; <code>{{ permissions.recording_dir }}</code>
+          ({{ permissions.recording_retention_days }} day retention)
+        {% else %}<strong>off</strong>{% endif %}
+      </div>
+      <div class="text-xs">
+        Voicemail: {% if permissions.voicemail_enabled %}
+          <strong>on</strong> ({{ permissions.voicemail_format }}, max {{ permissions.voicemail_max_duration }}s,
+          <code>{{ permissions.voicemail_dir }}</code>)
+        {% else %}<strong>off</strong>{% endif %}
+      </div>
+    </div>
   </div>
 
   <div class="panel-card p-6 space-y-4 max-w-3xl mx-auto">
     <h2 class="section-title">Activation</h2>
+    {% if standalone %}
+    <p class="field-help">Standalone mode: generates the configs into
+      <code>data/asterisk-build/</code>. Nothing is copied to Asterisk on this machine.</p>
+    {% else %}
     <p class="field-help">Generates configs in <code>/etc/asterisk</code> and reloads.</p>
+    {% endif %}
     <div class="flex flex-wrap items-center justify-center gap-3">
       {% if not finished or errors %}
       <form method="post" action="/finish"><button type="submit" class="btn-primary">Finalize JSON</button></form>
       {% else %}
-      <form method="post" action="/publish"><button type="submit" class="btn-primary">Build &amp; Deploy</button></form>
+      <form method="post" action="/publish"><button type="submit" class="btn-primary">{% if standalone %}Generate Configs{% else %}Build &amp; Deploy{% endif %}</button></form>
       <form method="post" action="/finish"><button type="submit" class="btn-secondary btn-sm">Re-validate</button></form>
       {% endif %}
-      <a href="/smtp" class="btn-secondary">Back</a>
+      <a href="/permissions" class="btn-secondary">Back</a>
     </div>
   </div>
 </div>

@@ -80,7 +80,8 @@ Test without a live Asterisk:
 ```sh
 .venv/bin/python -m openivr verify     # config/flow/media checks; ARI check fails harmlessly
 .venv/bin/python -m openivr flow tree
-NONINTERACTIVE=1 ./run_ivr.sh --skip-install --no-builder --no-start
+make deploy          # render + copy + reload, no sudo
+make staging        # render only, into data/asterisk-build
 ```
 
 ## Tests

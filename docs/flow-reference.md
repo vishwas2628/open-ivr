@@ -104,7 +104,7 @@ timezone, the code logs a warning and falls back to UTC.
 
 ## Prompts
 
-Prompt names are resolved as `sound:custom/<name>`, because `run_ivr.sh` copies
+Prompt names are resolved as `sound:custom/<name>`, because `make deploy` copies
 `data/sounds/` into `/var/lib/asterisk/sounds/custom/`. You may also write a
 full media URI in a flow (`sound:hello-world`, `recording:stored:foo`) and it is
 passed to Asterisk unchanged.

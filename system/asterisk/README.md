@@ -9,7 +9,9 @@ to `/etc/asterisk/`.
 
 ```
 system/asterisk/
-├── *.conf                    # Root configs (asterisk.conf, pjsip.conf, etc.)
+├── *.conf                    # Root configs (pjsip.conf, ari.conf, etc.)
+│                             # asterisk.conf is NOT here: the installer's
+│                             # /etc/asterisk/asterisk.conf is left untouched
 ├── extensions/
 │   ├── outgoing.conf         # Outbound trunk routing (included by #tryinclude)
 │   └── <ext>.conf            # Per-extension: exten => <N> in [extensions]
@@ -57,13 +59,6 @@ Every `{{TOKEN}}` in the skeleton is documented here with its source.
 
 | Token | Default | Used In | Source |
 |-------|---------|---------|--------|
-| `{{astetcdir}}` | `/etc/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
-| `{{astvarlibdir}}` | `/var/lib/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
-| `{{astdbdir}}` | `/var/lib/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
-| `{{astkeydir}}` | `/var/lib/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
-| `{{astspooldir}}` | `/var/spool/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
-| `{{astrundir}}` | `/var/run/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
-| `{{astlogdir}}` | `/var/log/asterisk` | asterisk.conf | system/steps/00-preflight.sh |
 | `{{ari_user}}` | `openivr` | ari.conf | 30-ari.sh |
 | `{{ari_pass}}` | random | ari.conf | 30-ari.sh |
 | `{{ari_bind}}` | `127.0.0.1` | http.conf | 30-ari.sh |
@@ -71,7 +66,7 @@ Every `{{TOKEN}}` in the skeleton is documented here with its source.
 | `{{rtpstart}}` | `10000` | rtp.conf | 30-ari.sh |
 | `{{rtpend}}` | `20000` | rtp.conf | 30-ari.sh |
 | `{{stunaddr}}` | `stun.l.google.com:19302` | rtp.conf | 30-ari.sh |
-| `{{external_media_address}}` | (empty) | rtp.conf, asterisk.conf (optional) | 30-ari.sh |
+| `{{external_media_address}}` | (empty) | rtp.conf | 30-ari.sh |
 | `{{ice_acl}}` | `rtp-ice` | rtp.conf | (from acl.conf) |
 | `{{protocol}}` | `udp` | (was in pjsip.conf, now in trunk template) | — |
 | `{{port}}` | `5060` | (was in pjsip.conf, now in trunk template) | — |
@@ -90,7 +85,7 @@ Every `{{TOKEN}}` in the skeleton is documented here with its source.
 
 | Token | Default | Used In | Meaning |
 |-------|---------|---------|---------|
-| `{{stasis_app}}` | `openivr` | extensions.conf [globals] | ARI Stasis app name |
+| `{{stasis_app}}` | `openivr` | ari.conf, extensions.conf [globals] | static ARI Stasis app name |
 | `{{ring_timeout}}` | `45` | extensions.conf, queues.conf, outgoing.conf | Seconds an extension/queue rings |
 | `{{dial_timeout}}` | `60` | extensions.conf [globals], outgoing.conf | Outbound trunk dial timeout |
 | `{{max_call_duration}}` | `5400` | extensions.conf [globals] | Hard ceiling on any call |
@@ -167,3 +162,7 @@ to tag Asterisk's CDR with tenant and flow info.
 - `manager.so` is loaded (built-in) but `manager.conf [general] enabled = no`.
 - `originate.py` is **LEGACY** — `dial.mode: dialplan` is the supported path.
 - `system/steps/30-ari.sh` no longer writes `modules.conf.d/openivr.conf`.
+- `asterisk.conf` is **not** part of the skeleton any more - `make install`
+  leaves the distro's `/etc/asterisk/asterisk.conf` alone.
+- `ari.conf` declares two Stasis apps: `openivr` (the IVR) and
+  `openivr-admin` (monitoring). The IVR app name is static.

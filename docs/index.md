@@ -31,7 +31,7 @@ caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (
    dial action ─────┴──▶ [openivr-dial] ──▶ Dial(PJSIP/1001)
 ```
 
-`run_ivr.sh` runs the whole pipeline:
+The Makefile drives the whole pipeline:
 
 1. **system module** – `sudo ./system/install.sh` writes everything it learns
    into `system.json` (one JSON file, as the plan asks).

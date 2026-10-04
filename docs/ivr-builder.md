@@ -1,6 +1,6 @@
 # The IVR builder
 
-`./run_ivr.sh` (step 2) starts the builder on `http://127.0.0.1:8090`. It is a
+`make builder` starts the builder on `http://127.0.0.1:8090`. It is a
 plain FastAPI app with server-side rendered forms - no build step, no
 JavaScript framework. You can start it again at any time:
 
@@ -38,7 +38,7 @@ JavaScript framework. You can start it again at any time:
 4. **Finish.** Validates structure *and* media, saves `data/ivr_flow.json`, and
    - because the plan asks for it - redirects to `/smtp` first when voicemail is
    enabled and no mail settings exist yet. After that the builder shuts itself
-   down and `run_ivr.sh` continues with verification and the systemd unit.
+   down so `make verify` / `make service-start` can continue.
 
 ## What the builder writes
 

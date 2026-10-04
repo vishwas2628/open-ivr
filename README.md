@@ -23,10 +23,10 @@
 "Press 1 for sales, 2 for support, 3 to leave a message..."
 ```
 
-* **one command** - `./run_ivr.sh` installs Asterisk/ARI, opens a web builder,
-  verifies everything and starts a systemd service
-* **no config files to hand-edit** - one installer, one builder, one
-  `system.json`
+* **one command** - `make install` installs Asterisk/ARI, then `make builder`
+  opens a login-protected web builder and `make deploy` publishes it
+* **no config files to hand-edit** - `config.yaml` (chmod 600) is the single
+  source of truth, written by the installer, the builder and the CLI
 * **real async** - [asyncari](https://github.com/M-o-a-T/asyncari) with
   `ToplevelChannelState` and the official `DTMFHandler`; barge-in works
 * **server-side rendered** - FastAPI + Jinja, no frontend toolchain
@@ -38,43 +38,55 @@
 
 ```sh
 git clone <your fork> open-ivr && cd open-ivr
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-# optional: generate test prompts (espeak-ng/sox if available)
-.venv/bin/python scripts/make_sounds.py --out data/sounds
-
-./run_ivr.sh                 # 1. system module  2. builder  3. verify  4. service
+make venv                    # .venv + requirements.txt
+make install                 # sudo: packages, Asterisk, ARI, systemd, permissions
+make builder                 # http://127.0.0.1:8090
+make deploy                  # render → copy into /etc/asterisk → reload
+make verify                  # config, flow, prompts, ARI, ports
+make service-start           # sudo: install/enable/start openivr.service
 ```
 
-`run_ivr.sh` step 2 serves the builder on <http://127.0.0.1:8090>; use an SSH
-tunnel on remote machines:
+`make builder` prints a one-time password the first time it runs (the hash is
+all that is kept). It binds loopback, so reach it through an SSH tunnel on a
+remote machine:
 
 ```sh
 ssh -L 8090:127.0.0.1:8090 user@your-server
 ```
 
-When you hit *Finish*, the builder validates and saves `data/ivr_flow.json`,
-stops itself, and the script continues: prompts are synced to Asterisk,
-`python -m openivr verify` runs, and `open-ivr.service` starts.
+`make deploy` never uses sudo. It renders the builder's JSON into
+`data/asterisk-build/`, copies the files into `/etc/asterisk` (world-readable,
+group-writable by `asterisk`), syncs `data/sounds/` into Asterisk's sounds
+folder and reloads. If your user cannot write `/etc/asterisk`, run
+`sudo make grant-permissions` once - after that deploy works unprivileged.
+
+Lost the password? `make creds` resets the login and prints the new one once.
 
 ## Test call
 
 ```sh
-asterisk -rx "channel originate PJSIP/6001 application Stasis openivr s 1000"
-journalctl -u open-ivr -f
+asterisk -rx "channel originate PJSIP/6001 application Stasis openivr"
+make logs
 ```
 
 ## Everyday commands
 
 ```sh
-.venv/bin/python -m openivr run              # foreground runtime (debug friendly)
-.venv/bin/python -m openivr verify           # config, flow, media, ARI, ports
-.venv/bin/python -m openivr builder          # edit the flow again
-.venv/bin/python -m openivr flow tree        # menu tree as JSON
-.venv/bin/python -m openivr flow validate    # validation only
-.venv/bin/python -m openivr originate PJSIP/6001 1000   # test a target outside Stasis
-.venv/bin/python -m openivr sounds list
-sudo ./system/status.sh                      # Asterisk, ports, extensions, service
+make help                    # every target
+make status                  # Asterisk, openivr.service, config, prompts
+make deploy                  # render + copy + sync prompts + reload
+make staging                 # render only, into data/asterisk-build
+make reload                  # reload Asterisk without restarting
+make sounds                  # copy data/sounds into Asterisk only
+make convert FILE=x.mp3      # convert one file to .ulaw + .wav
+make config                  # where config.yaml lives, what is in it
+make creds                   # reset the builder login
+make verify                  # config, flow, media, ARI, ports
+make openivr ARGS="flow tree"        # any CLI command
+.venv/bin/python -m openivr run      # foreground runtime (debug friendly)
+.venv/bin/python -m openivr originate PJSIP/6001   # test a target outside Stasis
+make test                    # pytest
+make lint                    # ruff
 ```
 
 ## How it works
@@ -85,7 +97,7 @@ caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (
                      │  dial action: continueInDialplan│
                      └──────────[openivr-dial]──▶ Dial(PJSIP/…)
 
-     menus / DTMF / prompts ──▶ sound:custom/…   (data/sounds → Asterisk)
+     menus / DTMF / prompts ──▶ sound:custom/…   (make deploy syncs data/sounds)
      voicemail ──▶ channel.record() ──▶ data/recordings/voicemail/*.wav (+ SMTP)
      every call ──▶ data/logs/cdr.csv (+ PostgreSQL when enabled)
 ```
@@ -102,19 +114,21 @@ caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (
 
 | path | what it is |
 |------|------------|
-| `run_ivr.sh` | the orchestrator (plan steps 1–5) |
-| `system/` | shell installer: preflight → Asterisk → firewall → ARI → trunk → extensions → database → recording → SMTP |
-| `openivr/` | runtime core + the FastAPI builder |
-| `data/` | `ivr_flow.json`, sounds, recordings, logs (runtime state) |
-| `systemd/open-ivr.service` | service unit |
+| `Makefile` | the entry points: `install`, `builder`, `deploy`, `verify`, `service-*` |
+| `system/` | shell installer (`install.sh`, `steps/`) and `deploy.sh`/`status.sh` |
+| `openivr/` | runtime core, config, publish pipeline, FastAPI builder |
+| `data/` | `ivr_flow.json`, sounds, recordings, logs, staged configs (runtime state) |
+| `systemd/openivr.service` | service unit (rendered with the current paths) |
 | `docs/` | [index](docs/index.md), [getting started](docs/getting-started.md), [flow reference](docs/flow-reference.md), [configuration](docs/configuration.md), [operations](docs/operations.md), [troubleshooting](docs/troubleshooting.md), [development](docs/development.md) |
 | `examples/` | the reference IVR this project was built to replace |
 
 ## Configuration
 
-`config.yaml` (hand-editable) is layered under `system.json` (written by the
-installer, `chmod 600`), `data/smtp.json` (written by the builder) and
-`OPENIVR_*` environment variables. The most common knobs:
+`config.yaml` is the single source of truth: hand-editable, `chmod 600`,
+created from `example.config.yaml` on first run and written by the installer
+(`openivr config set`), the builder (Settings, Permissions, SMTP) and
+`make creds`. `data/permissions.json` keeps the recording/voicemail choices
+next to the prompts they apply to. The most common knobs:
 
 ```yaml
 app:   { stasis_app: openivr, answer_delay: 0.4 }
@@ -151,12 +165,13 @@ Full reference: [docs/configuration.md](docs/configuration.md).
 
 ## Security notes
 
-* ARI is bound to `127.0.0.1` and `system.json` is mode 600 - anyone with those
+* ARI is bound to `127.0.0.1` and `config.yaml` is mode 600 - anyone with those
   credentials can control your calls, so never expose the ARI port
-* the builder binds loopback by default; if you bind it publicly, set
-  `OPENIVR_BUILDER_TOKEN`
-* e-mail passwords live in `data/smtp.json` (mode 600) - use provider app
-  passwords, not your main account password
+* the builder is login-protected (bcrypt + signed session cookie, default 2 h)
+  and binds loopback; if you bind it publicly also set `OPENIVR_BUILDER_TOKEN`
+* passwords are only ever stored hashed (builder) or in the 0600 `config.yaml`
+  (ARI, SMTP) - use provider app passwords, not your main account password
+* Python code never calls `sudo`; the installer does the privileged work once
 
 ## License
 

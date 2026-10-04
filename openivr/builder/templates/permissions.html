@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}OpenIVR — Step 5: Permissions &amp; Voicemail{% endblock %}
+{% block content %}
+<div class="space-y-6">
+
+  <div class="text-center space-y-2">
+    <div class="step-eyebrow pt-2">Step {{ steps.index('permissions') + 1 }} of {{ steps|length }} — Permissions &amp; Voicemail</div>
+    <p class="text-sm text-black max-w-2xl mx-auto">Voicemail boxes, call recording, and where the files land on disk.</p>
+  </div>
+
+  {% if errors %}
+  <div class="notice-box space-y-2">
+    <div class="notice-title"><span>Fix these ({{ errors|length }})</span></div>
+    <ul class="text-xs list-disc list-inside space-y-1 pl-1">
+      {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/permissions" class="space-y-6 max-w-4xl mx-auto">
+
+    <div class="panel-card p-6 space-y-5">
+      <div class="space-y-1">
+        <h2 class="section-title">Voicemail</h2>
+        <p class="field-help">Mailboxes in the IVR menu are answered by Asterisk's built-in voicemail app.</p>
+      </div>
+
+      <label class="flex items-center gap-3 text-sm font-semibold">
+        <input type="checkbox" name="voicemail_enabled" value="1" 
+               {% if values.voicemail_enabled %}checked{% endif %}>
+        <span>Enable voicemail</span>
+      </label>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <label class="flex flex-col gap-1 text-sm font-semibold">
+          <span>Max message duration (seconds)</span>
+          <input type="number" name="voicemail_max_duration" min="10" max="600" step="1"
+                 value="{{ values.voicemail_max_duration }}" class="form-input" required>
+        </label>
+        <label class="flex flex-col gap-1 text-sm font-semibold">
+          <span>Format</span>
+          <select name="voicemail_format" class="form-select">
+            {% for fmt in voicemail_formats %}
+            <option value="{{ fmt }}" {% if values.voicemail_format == fmt %}selected{% endif %}>{{ fmt }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1 text-sm font-semibold">
+          <span>Voicemail directory</span>
+          <input type="text" name="voicemail_dir" value="{{ values.voicemail_dir }}"
+                 class="form-input font-mono text-xs">
+          <span class="field-help">Relative paths resolve to <code>{{ root }}</code>. Created on save.</span>
+        </label>
+      </div>
+      {% if voicemail_dir %}
+      <p class="field-help">Currently <code>{{ voicemail_dir }}</code></p>
+      {% endif %}
+    </div>
+
+    <div class="panel-card p-6 space-y-5">
+      <div class="space-y-1">
+        <h2 class="section-title">Call Recording</h2>
+        <p class="field-help">Adds <code>MixMonitor</code> to every extension written by the builder.</p>
+      </div>
+
+      <label class="flex items-center gap-3 text-sm font-semibold">
+        <input type="checkbox" name="recording_enabled" value="1" 
+               {% if values.recording_enabled %}checked{% endif %}>
+        <span>Enable call recording</span>
+      </label>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <label class="flex flex-col gap-1 text-sm font-semibold">
+          <span>Recording directory (Asterisk spool)</span>
+          <input type="text" name="recording_dir" value="{{ values.recording_dir }}"
+                 class="form-input font-mono text-xs">
+          <span class="field-help">Must be writable by the <code>asterisk</code> user.</span>
+        </label>
+        <label class="flex flex-col gap-1 text-sm font-semibold">
+          <span>Retention (days)</span>
+          <input type="number" name="recording_retention_days" min="1" max="3650" step="1"
+                 value="{{ values.recording_retention_days }}" class="form-input" required>
+        </label>
+      </div>
+      {% if recordings_dir %}
+      <p class="field-help">openivr also stores copies under <code>{{ recordings_dir }}</code>.</p>
+      {% endif %}
+    </div>
+
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <a href="/dialplan" class="btn-secondary">Back to Dialplan</a>
+      <button type="submit" class="btn-primary">Save permissions</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

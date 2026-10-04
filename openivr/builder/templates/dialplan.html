@@ -4,7 +4,7 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <div class="step-eyebrow pt-2">Step 4 of 6 — Dialplan &amp; Menus</div>
+    <div class="step-eyebrow pt-2">Step {{ steps.index('dialplan') + 1 }} of {{ steps|length }} — Dialplan &amp; Menus</div>
     <p class="text-sm text-black max-w-2xl mx-auto">Greeting, timeouts, and keypad routing (0–9, *, #).</p>
   </div>
 
@@ -201,6 +201,55 @@
   <form id="delete-menu-form" method="post" action="/dialplan/menu/delete" class="hidden">
     <input type="hidden" id="delete-menu-name" name="menu_name" value="">
   </form>
+
+  <!-- Audio library: upload + manage the prompt files this page references -->
+  <div class="max-w-4xl mx-auto space-y-6">
+    <div class="panel-card p-6 space-y-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="section-title">Prompt Library ({{ sound_files|length }})</h2>
+        {% if ffmpeg_available %}
+        <span class="field-help">mp3/m4a/flac uploads are converted to 8 kHz mono wav</span>
+        {% else %}
+        <span class="field-help">install ffmpeg to upload mp3/m4a/flac</span>
+        {% endif %}
+      </div>
+      <form method="post" action="/dialplan/upload" enctype="multipart/form-data"
+            class="flex flex-wrap items-center gap-3">
+        <input id="prompt-file" type="file" name="file" required
+               accept=".wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.m4a,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff"
+               class="form-input flex-1 min-w-[200px]">
+        <button type="submit" class="btn-primary btn-sm">Upload prompt</button>
+      </form>
+      <p class="field-help">
+        Uploaded files are renamed to snake_case. Max {{ max_upload_mb }} MB.
+        Tip: <code>sox input.wav -r 8000 -c 1 -b 16 output.wav</code>
+      </p>
+      {% if sound_files %}
+      <div class="table-container">
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>File</th><th>Size</th><th></th></tr></thead>
+          <tbody>
+            {% for f in sound_files %}
+            <tr>
+              <td class="font-mono text-xs font-bold">{{ f.name }}</td>
+              <td class="text-xs">{{ f.relpath }}</td>
+              <td class="text-xs">{{ '{:,}'.format(f.size) }} B</td>
+              <td class="text-center">
+                <form method="post" action="/dialplan/delete" onsubmit="return confirm('Delete {{ f.name }}?');">
+                  <input type="hidden" name="name" value="{{ f.relpath }}">
+                  <button type="submit" class="btn-danger-subtle" title="Delete">X</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-xs text-center py-4">No prompts uploaded yet.</p>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 <script>
@@ -249,7 +298,7 @@ async function pickPrompt(btn) {
   const label = wrap.querySelector('.prompt-name');
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.oga,.ogg';
+  input.accept = '.wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.m4a,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff';
   input.onchange = async () => {
     const f = input.files && input.files[0];
     if (!f) return;
@@ -257,7 +306,7 @@ async function pickPrompt(btn) {
     fd.append('file', f);
     btn.disabled = true; btn.textContent = 'Uploading...';
     try {
-      const res = await fetch('/media/upload', {method: 'POST', body: fd, headers: {'Accept': 'application/json'}});
+      const res = await fetch('/dialplan/upload', {method: 'POST', body: fd, headers: {'Accept': 'application/json'}});
       const data = await res.json();
       if (data.ok) {
         hidden.value = data.prompt;

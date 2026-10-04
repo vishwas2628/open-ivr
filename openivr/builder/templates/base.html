@@ -22,6 +22,13 @@
     </div>
     <div class="flex items-center gap-3 text-sm font-semibold flex-shrink-0">
       <a href="https://github.com/vishwas2628/open-ivr" target="_blank" rel="noopener" class="text-black no-underline">GitHub</a>
+      {% if current_user %}
+      <a href="/settings" class="no-underline text-black" title="Signed in as {{ current_user }}">
+        <span class="inline-block w-2 h-2 rounded-full" style="background:#16a34a;"></span>
+        {{ current_user }}
+      </a>
+      <a href="/logout" class="no-underline text-black/70 hover:text-black text-xs font-bold uppercase">Sign out</a>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -69,6 +76,18 @@
     </div>
   </div>
 </div>
+
+<!-- Standalone banner -->
+{% if standalone %}
+<div class="max-w-5xl mx-auto px-4 sm:px-6 pt-4 w-full">
+  <div class="notice-box mb-0">
+    <strong>Standalone mode</strong> &mdash; no <code>system.json</code> found, so this machine has no
+    Asterisk install. Everything in the builder works; <em>Build &amp; Deploy</em> only renders the
+    files into <code>data/asterisk-build/</code>. Run <code>sudo make install</code> on the Asterisk
+    box to install the system side.
+  </div>
+</div>
+{% endif %}
 
 <!-- Flash -->
 <div class="max-w-5xl mx-auto px-4 sm:px-6 pt-4 w-full">

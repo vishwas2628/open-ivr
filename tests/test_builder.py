@@ -14,7 +14,14 @@ from fastapi.testclient import TestClient
 from openivr.builder.providers import catalog_public, countries, provider_by_id, providers
 from openivr.builder.publish import publish
 from openivr.builder.render import render_all
-from openivr.builder.server import create_app, read_smtp, write_smtp
+from openivr.builder.server import (
+    SESSION_COOKIE,
+    create_app,
+    get_auth,
+    guard,
+    read_smtp,
+    write_smtp,
+)
 from openivr.builder.session import (
     load_endpoints,
     load_extensions,
@@ -29,13 +36,34 @@ from openivr.builder.session import (
 
 
 @pytest.fixture
-def client(project: Path, monkeypatch: pytest.MonkeyPatch):
+def app(project: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("OPENIVR_BUILDER_TOKEN", raising=False)
     # Ensure project data directory exists
     (project / "data").mkdir(parents=True, exist_ok=True)
     (project / "data" / "sounds").mkdir(parents=True, exist_ok=True)
-    app = create_app(project)
-    app.state.keep_open = True
+    application = create_app(project)
+    application.state.keep_open = True
+    return application
+
+
+@pytest.fixture
+def client(app):
+    """A logged-in client: the builder protects every page with a session."""
+    auth = get_auth(app, app.state.root)
+    with TestClient(app) as test_client:
+        login = test_client.post(
+            "/login",
+            data={"username": auth.username, "password": auth.generated_password},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303, login.text[:400]
+        assert SESSION_COOKIE in login.cookies or SESSION_COOKIE in test_client.cookies
+        yield test_client
+
+
+@pytest.fixture
+def anon_client(app):
+    """A client that is *not* logged in (login/settings/guard tests)."""
     with TestClient(app) as test_client:
         yield test_client
 
@@ -212,7 +240,8 @@ def test_dialplan_workflow(client: TestClient, project: Path) -> None:
     }
     response = client.post("/dialplan", data=form, follow_redirects=False)
     assert response.status_code == 303
-    assert "/smtp" in response.headers["location"]
+    # permissions is the next wizard step
+    assert "/permissions" in response.headers["location"]
 
     ivr = load_ivr(project)
     assert ivr["welcome_prompt"]["prompt"] == "sounds/welcome"
@@ -232,9 +261,9 @@ def test_dialplan_menu_add_and_delete(client: TestClient, project: Path) -> None
 
 
 def test_media_upload_and_delete(client: TestClient, project: Path) -> None:
-    # Test file upload with snake_case conversion
+    # Test file upload with snake_case conversion (prompts live on the dialplan step)
     response = client.post(
-        "/media/upload",
+        "/dialplan/upload",
         files={"file": ("My Prompt 01.wav", b"RIFF....", "audio/wav")},
         follow_redirects=False,
     )
@@ -245,9 +274,22 @@ def test_media_upload_and_delete(client: TestClient, project: Path) -> None:
     assert (sounds_dir / "my_prompt_01.wav").exists()
 
     # Delete
-    response = client.post("/media/delete", data={"name": "my_prompt_01.wav"}, follow_redirects=False)
+    response = client.post(
+        "/dialplan/delete", data={"name": "my_prompt_01.wav"}, follow_redirects=False
+    )
     assert response.status_code == 303
     assert not (sounds_dir / "my_prompt_01.wav").exists()
+
+
+def test_media_rejects_unknown_extension(client: TestClient, project: Path) -> None:
+    response = client.post(
+        "/dialplan/upload",
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.json()["ok"] is False
+    assert not (project / "data" / "sounds" / "notes.txt").exists()
 
 
 def test_smtp_configuration(client: TestClient, project: Path) -> None:
@@ -274,7 +316,9 @@ def test_smtp_configuration(client: TestClient, project: Path) -> None:
     assert len(stored["alerts_to"]) == 2
 
 
-def test_finish_and_publish_flow(client: TestClient, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finish_and_publish_flow(
+    client: TestClient, app, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Seed full valid setup
     save_trunk(
         project,
@@ -330,6 +374,8 @@ def test_finish_and_publish_flow(client: TestClient, project: Path, monkeypatch:
 
     # Mock reload script so it doesn't fail on missing asterisk
     monkeypatch.setattr("openivr.builder.publish.run_reload", lambda: (True, "mocked reload ok"))
+    # a temp project has no system.json -> make this test the "system installed" path
+    app.state.standalone = False
 
     # Finish page renders summary
     response = client.get("/finish")
@@ -348,7 +394,7 @@ def test_finish_and_publish_flow(client: TestClient, project: Path, monkeypatch:
     monkeypatch.setenv("OPENIVR_ASTERISK_ETC", str(dest_dir))
     response = client.post("/publish", follow_redirects=False)
     assert response.status_code == 200
-    assert "Generated" in response.text or "Configuration Published" in response.text
+    assert "Deployment Report" in response.text
 
     # Check conf files generated
     assert (dest_dir / "endpoints" / "trunks" / "bsnl_wings.conf").exists()
@@ -363,28 +409,79 @@ def test_status_endpoint(client: TestClient, project: Path) -> None:
     assert "extensions_count" in data
 
 
-def test_token_security_guard(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_token_security_guard(app, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A remote client needs the API token (or a session) to write."""
     monkeypatch.setenv("OPENIVR_BUILDER_TOKEN", "supersecret")
-    # POST without token is rejected
-    assert client.post("/dialplan/menu/add", data={"menu_name": "test"}).status_code == 403
+    remote = ("203.0.113.7", 40000)
+    with TestClient(app, client=remote) as client:
+        # pages need a session
+        page = client.get("/trunk", follow_redirects=False)
+        assert page.status_code == 303
+        assert page.headers["location"].startswith("/login")
 
-    # POST with header succeeds
-    assert (
-        client.post(
-            "/dialplan/menu/add",
-            data={"menu_name": "test"},
-            headers={"x-openivr-token": "supersecret"},
-            follow_redirects=False,
-        ).status_code
-        == 303
-    )
+        # ...and writes do too (no token, no session)
+        denied = client.post("/dialplan/menu/add", data={"menu_name": "test"}, follow_redirects=False)
+        assert denied.status_code == 303
+        assert denied.headers["location"].startswith("/login")
+        assert "test" not in load_ivr(app.state.root).get("menus", {})
 
-    # POST with query param succeeds
-    assert (
-        client.post(
-            "/dialplan/menu/add?token=supersecret",
-            data={"menu_name": "test2"},
+        # the token in a header is accepted
+        assert (
+            client.post(
+                "/dialplan/menu/add",
+                data={"menu_name": "test"},
+                headers={"x-openivr-token": "supersecret"},
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+        assert "test" in load_ivr(app.state.root).get("menus", {})
+
+        # ...and as a query parameter
+        assert (
+            client.post(
+                "/dialplan/menu/add?token=supersecret",
+                data={"menu_name": "test2"},
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+
+    # ...and a logged-in remote session works without the token
+    auth = get_auth(app, app.state.root)
+    with TestClient(app, client=remote) as client:
+        login = client.post(
+            "/login",
+            data={"username": auth.username, "password": auth.generated_password},
             follow_redirects=False,
-        ).status_code
-        == 303
-    )
+        )
+        assert login.status_code == 303
+        assert client.get("/trunk").status_code == 200
+        assert (
+            client.post(
+                "/dialplan/menu/add", data={"menu_name": "sales"}, follow_redirects=False
+            ).status_code
+            == 303
+        )
+
+
+def test_guard_rejects_remote_writes_without_token_or_session(app) -> None:
+    """The route-level guard is defence in depth behind the middleware."""
+    from starlette.requests import Request
+
+    def remote_request() -> Request:
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/publish",
+            "query_string": b"",
+            "headers": [(b"host", b"example.org")],
+            "client": ("203.0.113.7", 40000),
+            "scheme": "https",
+            "server": ("example.org", 443),
+            "root_path": "",
+            "app": app,
+        }
+        return Request(scope)
+
+    assert guard(remote_request()).status_code == 403
