@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}OpenIVR — Configuration Applied{% endblock %}
+{% block title %}OpenIVR — {% if publish_info and publish_info.get('standalone') %}Configuration Generated{% else %}Configuration Applied{% endif %}{% endblock %}
 {% block content %}
 <div class="max-w-2xl mx-auto py-8 space-y-6 text-center">
 
@@ -8,14 +8,28 @@
 
   <div class="panel-card p-8 space-y-4">
     <div class="w-12 h-12 bg-black text-white flex items-center justify-center mx-auto text-xl font-black" style="border:2px solid #000;border-radius:999px;">✓</div>
-    <h2 class="page-title text-2xl">Configuration Deployed</h2>
+    <h2 class="page-title text-2xl">{% if publish_info and publish_info.get('standalone') %}Configuration Generated{% else %}Configuration Deployed{% endif %}</h2>
     <p class="text-sm text-black">{{ message }}</p>
     {% if publish_info %}
+    {% if publish_info.get('standalone') %}
+    <div class="notice-box text-left">
+      <strong>Standalone mode.</strong> Asterisk is not installed on this machine, so the
+      files below were only generated. Run <code>sudo make install</code> on the Asterisk box
+      and <code>make deploy</code> to install them.
+    </div>
+    {% endif %}
     <div class="panel-sunken p-4 text-left text-xs space-y-2">
-      <div class="step-eyebrow">Deployment Report</div>
+      <div class="step-eyebrow">{% if publish_info.get('standalone') %}Generated Files{% else %}Deployment Report{% endif %}</div>
       <div><strong>Target:</strong> <code>{{ publish_info.get('dest') }}</code></div>
+      <div><strong>Staging:</strong> <code>{{ publish_info.get('staging') }}</code></div>
       <div><strong>Files:</strong> {{ (publish_info.get('files') or [])|join(', ') }}</div>
       <div><strong>Reload:</strong> {{ publish_info.get('reload_detail') }}</div>
+      {% if publish_info.get('copied') %}
+      <div><strong>Copied:</strong> {{ (publish_info.get('copied') or [])|join(', ') }}</div>
+      {% endif %}
+      {% if publish_info.get('copy_error') %}
+      <div class="notice-box">Could not deploy with the builder user: {{ publish_info.get('copy_error') }}</div>
+      {% endif %}
     </div>
     {% endif %}
     <div class="flex flex-wrap justify-center gap-3 pt-2">
@@ -27,12 +41,20 @@
 
   <div class="panel-card p-6 space-y-3 text-left">
     <h2 class="section-title">Next Steps</h2>
+    {% if standalone %}
     <ol class="text-xs list-decimal list-inside space-y-2">
-      <li>Check status: <code>systemctl status asterisk</code></li>
-      <li>Logs: <code>journalctl -u open-ivr -f</code></li>
-      <li>CDR: <code>data/logs/cdr.csv</code></li>
-      <li>Restart builder to edit JSON and re-publish.</li>
+      <li>Review the generated files in <code>data/asterisk-build/</code></li>
+      <li>Copy them to <code>/etc/asterisk</code> on the Asterisk box</li>
+      <li>Reload: <code>make reload</code></li>
     </ol>
+    {% else %}
+    <ol class="text-xs list-decimal list-inside space-y-2">
+      <li>Check status: <code>make status</code></li>
+      <li>Logs: <code>make logs</code></li>
+      <li>CDR: <code>data/logs/cdr.csv</code></li>
+      <li>Restart the builder to edit JSON and re-deploy.</li>
+    </ol>
+    {% endif %}
   </div>
 
   <p class="text-xs font-semibold">OpenIVR: Simple, Scalable, Reliable Communications.</p>

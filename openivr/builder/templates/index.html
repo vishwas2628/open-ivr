@@ -38,9 +38,17 @@
       <a class="btn-secondary btn-sm" href="/dialplan">Edit Flow</a>
     </div>
     <div class="panel-card p-5 space-y-3">
-      <div class="flex items-center gap-2"><span class="badge badge-dark">2</span><h2 class="section-title">Media</h2></div>
-      <p class="text-xs">{{ files|length }} file(s) in <code>{{ config.paths.sounds }}</code></p>
-      <a class="btn-secondary btn-sm" href="/media">Upload</a>
+      <div class="flex items-center gap-2"><span class="badge badge-dark">2</span><h2 class="section-title">Recording</h2></div>
+      {% if permissions.recording_enabled %}
+      <p class="text-xs">MixMonitor on &rarr; <code>{{ permissions.recording_dir }}</code></p>
+      <p class="text-xs text-black/60">Kept {{ permissions.recording_retention_days }} day(s).</p>
+      {% else %}
+      <p class="text-xs italic">Call recording off.</p>
+      {% endif %}
+      {% if permissions.voicemail_enabled %}
+      <p class="text-xs">Voicemail on ({{ permissions.voicemail_format }}, max {{ permissions.voicemail_max_duration }}s).</p>
+      {% endif %}
+      <a class="btn-secondary btn-sm" href="/permissions">Permissions</a>
     </div>
     <div class="panel-card p-5 space-y-3">
       <div class="flex items-center gap-2"><span class="badge badge-dark">3</span><h2 class="section-title">SMTP</h2></div>
@@ -53,7 +61,7 @@
     </div>
     <div class="panel-card p-5 space-y-3">
       <div class="flex items-center gap-2"><span class="badge badge-dark">4</span><h2 class="section-title">Start</h2></div>
-      <p class="text-xs">Validate, then stop builder so <code>run_ivr.sh</code> can start.</p>
+      <p class="text-xs">{{ files|length }} prompt(s). Validate, then deploy to Asterisk.</p>
       <a class="btn-primary btn-sm" href="/finish">Validate &amp; Finish</a>
     </div>
   </div>

@@ -4,7 +4,7 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <div class="step-eyebrow pt-2">Step 1 of 6 — Trunk Configuration</div>
+    <div class="step-eyebrow pt-2">Step {{ steps.index('trunk') + 1 }} of {{ steps|length }} — Trunk Configuration</div>
     <p class="text-sm text-black max-w-2xl mx-auto">
       Connect Asterisk to your carrier for incoming and outgoing calls.
     </p>
@@ -29,7 +29,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label for="country" class="field-label">Country / Region</label>
-          <select id="country" name="country" onchange="filterProviders()" class="form-select">
+          <select id="country" name="country" data-search-placeholder="Search country or code..." onchange="filterProviders()" class="form-select">
             <option value="">-- All Countries --</option>
             {% for c in countries %}
             <option value="{{ c.id }}" {% if trunk.get('country') == c.id %}selected{% endif %}>{{ c.name }} ({{ c.dial_code }})</option>
@@ -38,7 +38,7 @@
         </div>
         <div>
           <label for="provider_id" class="field-label">SIP Provider *</label>
-          <select id="provider_id" name="provider_id" data-saved="{{ trunk.get('provider_id', '') }}" onchange="showProviderInfo()" required class="form-select">
+          <select id="provider_id" name="provider_id" data-search-placeholder="Search carrier name..." data-saved="{{ trunk.get('provider_id', '') }}" onchange="showProviderInfo()" required class="form-select">
             <option value="">-- Select SIP Provider --</option>
           </select>
         </div>
@@ -116,7 +116,7 @@
         </div>
         <div>
           <label for="transport" class="field-label">Transport</label>
-          <select id="transport" name="transport" class="form-select" onchange="syncSignalingPort()">
+          <select id="transport" name="transport" data-searchable="false" class="form-select" onchange="syncSignalingPort()">
             <option value="transport-udp" {% if trunk.get('transport','transport-udp') == 'transport-udp' %}selected{% endif %}>UDP</option>
             <option value="transport-tcp" {% if trunk.get('transport') == 'transport-tcp' %}selected{% endif %}>TCP</option>
           </select>
@@ -162,6 +162,9 @@ function filterProviders() {
       sel.appendChild(opt);
     }
   });
+  if (sel._customDropdown) {
+    sel._customDropdown.sync();
+  }
   showProviderInfo();
 }
 
@@ -266,7 +269,6 @@ function showProviderInfo() {
     div.appendChild(label);
     const wrap = document.createElement('div');
     if (f.type === 'select') {
-      div.appendChild(label);
       const select = document.createElement('select');
       select.name = 'field__' + f.id; select.id = inputId;
       select.className = 'form-select';
@@ -286,6 +288,7 @@ function showProviderInfo() {
         div.appendChild(help);
       }
       fields.appendChild(div);
+      initCustomDropdown(select);
       return;
     }
     wrap.className = f.type === 'password' ? 'relative' : '';
@@ -353,9 +356,46 @@ function syncSignalingPort() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  initCustomDropdown(document.getElementById('country'), {
+    searchPlaceholder: 'Search country or code...'
+  });
+  initCustomDropdown(document.getElementById('provider_id'), {
+    searchPlaceholder: 'Search carrier name...'
+  });
+  initCustomDropdown(document.getElementById('transport'), {
+    searchable: false
+  });
   filterProviders();
   updateAuthFieldVisibility();
   syncSignalingPort();
+
+  const form = document.getElementById('trunk-form');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      const provSel = document.getElementById('provider_id');
+      if (provSel && provSel.required && !provSel.value) {
+        e.preventDefault();
+        const dd = provSel._customDropdown;
+        if (dd) {
+          dd.trigger.classList.add('custom-dropdown-invalid');
+          dd.trigger.focus();
+          dd.open();
+        }
+        let errBox = document.getElementById('provider-error-msg');
+        if (!errBox && dd) {
+          errBox = document.createElement('p');
+          errBox.id = 'provider-error-msg';
+          errBox.className = 'field-help text-red-600 font-bold';
+          errBox.textContent = 'Please select a SIP provider to continue.';
+          dd.wrapper.parentNode.appendChild(errBox);
+        }
+        if (dd) {
+          dd.wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return false;
+      }
+    });
+  }
 });
 </script>
 {% endblock %}

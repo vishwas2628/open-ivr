@@ -24,6 +24,16 @@ ASTERISK_SPOOL="${ASTERISK_SPOOL:-/var/spool/asterisk}"
 OPENIVR_USER="${OPENIVR_USER:-asterisk}"
 OPENIVR_GROUP="${OPENIVR_GROUP:-asterisk}"
 
+# Interpreter used for the openivr CLI (.venv when present, else system python3)
+if [ -z "${OPENIVR_PYTHON:-}" ]; then
+  if [ -x "${OPENIVR_ROOT}/.venv/bin/python" ]; then
+    OPENIVR_PYTHON="${OPENIVR_ROOT}/.venv/bin/python"
+  else
+    OPENIVR_PYTHON="$(command -v python3 || true)"
+  fi
+fi
+export OPENIVR_PYTHON
+
 mkdir -p "${STATE_DIR}"
 
 log()   { printf '%s\n' "${C_BLUE}==>${C_RESET} $*"; }
@@ -73,6 +83,49 @@ ask_yes_no() {
 # json_escape <string>
 json_escape() {
   printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
+
+# bool_json <answer>  (y|n|Y|N|true|false) -> true|false
+bool_json() {
+  case "${1,,}" in
+    y|yes|true|1) printf 'true' ;;
+    *)            printf 'false' ;;
+  esac
+}
+
+# state_get <fragment> <key> [default]
+# Reads one key out of a write_step fragment (falls back to $3).
+state_get() {
+  local fragment="$1" key="$2" default="${3:-}"
+  local file="${STATE_DIR}/${fragment}.json"
+  [ -f "${file}" ] || { printf '%s\n' "${default}"; return 0; }
+  python3 - "${file}" "${key}" "${default}" <<'PY'
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    data = json.load(open(path)).get("data") or {}
+except Exception:
+    data = {}
+value = data.get(key, default)
+if isinstance(value, bool):
+    value = "true" if value else "false"
+print(value)
+PY
+}
+
+# config_set <key> <value>
+# Writes a single value into config.yaml (mode 0600) - the YAML-aware way for
+# installer steps to store secrets (30-ari.sh, 60-database.sh, 80-smtp.sh).
+config_set() {
+  local key="$1" value="$2"
+  if ! have "${OPENIVR_PYTHON}"; then
+    warn "no python interpreter (${OPENIVR_PYTHON}); ${key} only stored in system.json"
+    return 0
+  fi
+  ( cd "${OPENIVR_ROOT}" && PYTHONPATH="${OPENIVR_ROOT}" "${OPENIVR_PYTHON}" -m openivr \
+      config set "${key}=${value}" >/dev/null ) \
+    || die "could not write ${key} into ${OPENIVR_ROOT}/config.yaml"
+  ok "config.yaml: ${key} stored (mode 0600)"
 }
 
 # write_step <name> <json-body>

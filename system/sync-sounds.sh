@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync data/sounds into Asterisk's sounds folder so sound:custom/<name> resolves.
-# Called by run_ivr.sh (step 3) - safe to run repeatedly.
+# Called by system/deploy.sh (and 'make sounds') - safe to run repeatedly.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 ASTERISK_SOUNDS="${ASTERISK_SOUNDS:-${ASTERISK_LIB}/sounds/custom}"
@@ -45,5 +45,10 @@ while IFS= read -r file; do
 done < <(find "${SOURCE}" -maxdepth 1 -type f \( -name '*.wav' -o -name '*.sln' -o -name '*.gsm' -o -name '*.ulaw' -o -name '*.alaw' -o -name '*.mp3' -o -name '*.ogg' -o -name '*.oga' \) -print)
 
 ok "${copied} file(s) updated, $((count - copied)) already current"
-asterisk_reload
+
+# Reload only when asked: deploy.sh reloads once at the end, and a manual
+# sync should not force a reload on an unattended machine.
+if [ "${OPENIVR_SKIP_RELOAD:-}" != "1" ]; then
+  asterisk_reload || warn "Asterisk reload failed (the files are copied anyway)"
+fi
 echo "${ASTERISK_SOUNDS}"

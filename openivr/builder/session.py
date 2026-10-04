@@ -13,14 +13,17 @@ from .defaults import default_ivr_document
 log = logging.getLogger("openivr.builder")
 
 MAX_ENDPOINTS = 50
-USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,31}$")
+# SIP/PJSIP user parts are very often just digits (1001, 2001, ...), so a
+# leading digit is allowed - it must match the HTML pattern on the endpoints page.
+USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 EXT_RE = re.compile(r"^[1-9][0-9]{0,5}$")
-STEPS = ("trunk", "endpoints", "extensions", "dialplan", "smtp", "finish")
+STEPS = ("trunk", "endpoints", "extensions", "dialplan", "permissions", "smtp", "finish")
 STEP_PATHS = {
     "trunk": "/trunk",
     "endpoints": "/endpoints",
     "extensions": "/extensions",
     "dialplan": "/dialplan",
+    "permissions": "/permissions",
     "smtp": "/smtp",
     "finish": "/finish",
 }
@@ -29,11 +32,13 @@ STEP_LABELS = {
     "endpoints": "Endpoints",
     "extensions": "Extensions",
     "dialplan": "Dialplan",
+    "permissions": "Permissions",
     "smtp": "SMTP",
     "finish": "Finish",
 }
 
 DTMF_KEYS = list("1234567890*#")
+VOICEMAIL_FORMATS = {"wav", "ulaw", "alaw", "gsm", "sln", "sln16"}
 DIALPLAN_ACTIONS = (
     "dial",
     "voicemail",
@@ -151,6 +156,75 @@ def save_ivr(root: Path, data: dict[str, Any]) -> Path:
     return _write_json(data_dir(root) / "ivr_flow.json", data)
 
 
+def save_smtp(root: Path, smtp: dict[str, Any]) -> Path:
+    mark_step(root, "smtp")
+    return _write_json(data_dir(root) / "smtp.json", {"smtp": smtp})
+
+
+def load_smtp(root: Path) -> dict[str, Any]:
+    data = _read_json(data_dir(root) / "smtp.json", {})
+    if not isinstance(data, dict):
+        return {}
+    smtp = data.get("smtp", data)
+    return smtp if isinstance(smtp, dict) else {}
+
+
+DEFAULT_PERMISSIONS: dict[str, Any] = {
+    "voicemail_enabled": True,
+    "voicemail_dir": "data/recordings/voicemail",
+    "voicemail_format": "wav",
+    "voicemail_max_duration": 120,
+    "recording_enabled": False,
+    "recording_dir": "/var/spool/asterisk/monitor",
+    "recording_retention_days": 30,
+}
+
+
+def load_permissions(root: Path) -> dict[str, Any]:
+    """Voicemail + recording settings, seeded from config.yaml defaults."""
+    data = _read_json(data_dir(root) / "permissions.json", None)
+    values = dict(DEFAULT_PERMISSIONS)
+    if isinstance(data, dict) and isinstance(data.get("permissions"), dict):
+        values.update({k: v for k, v in data["permissions"].items() if k in values})
+    return values
+
+
+def save_permissions(root: Path, data: dict[str, Any]) -> Path:
+    cleaned = {k: data[k] for k in DEFAULT_PERMISSIONS if k in data}
+    mark_step(root, "permissions")
+    return _write_json(data_dir(root) / "permissions.json", {"permissions": cleaned})
+
+
+def validate_permissions(data: dict[str, Any]) -> list[str]:
+    """Check the permissions step; a disabled feature is never validated."""
+    errors: list[str] = []
+    if data.get("voicemail_enabled"):
+        duration = data.get("voicemail_max_duration")
+        try:
+            duration = int(duration)
+        except (TypeError, ValueError):
+            errors.append("Voicemail max duration must be a number of seconds")
+        else:
+            if duration < 10 or duration > 600:
+                errors.append("Voicemail max duration must be between 10 and 600 seconds")
+        fmt = str(data.get("voicemail_format") or "").lower()
+        if fmt not in VOICEMAIL_FORMATS:
+            errors.append(f"Voicemail format must be one of {', '.join(sorted(VOICEMAIL_FORMATS))}")
+        if not str(data.get("voicemail_dir") or "").strip():
+            errors.append("Voicemail directory is required while voicemail is enabled")
+    if data.get("recording_enabled") and not str(data.get("recording_dir") or "").strip():
+        errors.append("Recording directory is required while call recording is enabled")
+    if data.get("recording_enabled"):
+        try:
+            days = int(data.get("recording_retention_days"))
+        except (TypeError, ValueError):
+            errors.append("Recording retention must be a number of days")
+        else:
+            if days < 1 or days > 3650:
+                errors.append("Recording retention must be between 1 and 3650 days")
+    return errors
+
+
 def snake_case_stem(name: str) -> str:
     stem = Path(name).stem.lower()
     slug = re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
@@ -203,7 +277,9 @@ def validate_endpoints(endpoints: list[dict[str, Any]]) -> list[str]:
     for item in endpoints:
         user = str(item.get("username") or "").strip()
         if not USERNAME_RE.match(user):
-            errors.append(f"Invalid username {user!r} (letter first, then letters/digits . _ -)")
+            errors.append(
+                f"Invalid username {user!r} (start with a letter or digit, then . _ - is allowed)"
+            )
             continue
         if user in seen:
             errors.append(f"Duplicate username {user!r}")
@@ -320,5 +396,9 @@ def first_incomplete_step(root: Path) -> str:
         return "dialplan"
     progress = load_progress(root)
     if not progress.get("finished"):
-        return "smtp" if "dialplan" in (progress.get("completed") or []) else "dialplan"
+        if "dialplan" not in (progress.get("completed") or []):
+            return "dialplan"
+        if "permissions" not in (progress.get("completed") or []):
+            return "permissions"
+        return "smtp" if "smtp" not in (progress.get("completed") or []) else "finish"
     return "finish"

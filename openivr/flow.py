@@ -210,11 +210,11 @@ class Flow:
         if not welcome and isinstance(data.get("welcome_prompt"), dict):
             welcome = data.get("welcome_prompt", {}).get("prompt") or None
         return cls(
-            version=int(data.get("version", data.get("Version", FLOW_VERSION)) if str(data.get("version", data.get("Version", ""))).replace(".", "").isdigit() else FLOW_VERSION),
+            version=_flow_version(data),
             start_menu=str(data.get("start_menu", "main")),
             welcome=welcome or None,
             goodbye=data.get("goodbye") or None,
-            menus={name: _menu_from_dict(name, body) for name, body in menus_raw.items()},
+            menus={name: _menu_from_dict(name, body, data) for name, body in menus_raw.items()},
             time_route=_time_route_from_dict(data.get("time_route")),
             digits=digits,
         )
@@ -262,6 +262,22 @@ def _as_int(value: Any, default: int) -> int:
         return default
 
 
+def _flow_version(data: dict[str, Any]) -> int:
+    raw = data.get("version", data.get("Version", FLOW_VERSION))
+    if isinstance(raw, int):
+        return raw
+    try:
+        return int(str(raw))
+    except (TypeError, ValueError):
+        try:
+            parts = [int(part) for part in str(raw).split(".")]
+        except (TypeError, ValueError):
+            parts = []
+        if parts and parts[0] == 0 and len(parts) >= 2 and parts[1] == 1:
+            return FLOW_VERSION
+        return FLOW_VERSION
+
+
 def _as_float(value: Any, default: float) -> float:
     try:
         return float(value)
@@ -298,14 +314,22 @@ def _action_from_dict(data: Any, where: str) -> Action:
     )
 
 
-def _menu_from_dict(name: str, body: Any) -> Menu:
+def _menu_from_dict(name: str, body: Any, root: dict[str, Any] | None = None) -> Menu:
     where = f"menus.{name}"
     if not isinstance(body, dict):
         raise FlowError([f"{where}: menu must be an object"])
-    timeout_raw = body.get("timeout") or {}
+    timeout_raw = body.get("timeout")
+    if timeout_raw is None and isinstance(root, dict):
+        timeout_raw = root.get("timeout")
+    if timeout_raw is None:
+        timeout_raw = {}
     if not isinstance(timeout_raw, dict):
         raise FlowError([f"{where}.timeout: must be an object"])
-    invalid_raw = body.get("invalid") or {}
+    invalid_raw = body.get("invalid")
+    if invalid_raw is None and isinstance(root, dict):
+        invalid_raw = root.get("invalid")
+    if invalid_raw is None:
+        invalid_raw = {}
     if not isinstance(invalid_raw, dict):
         raise FlowError([f"{where}.invalid: must be an object"])
     fail_action = timeout_raw.get("fail_action")

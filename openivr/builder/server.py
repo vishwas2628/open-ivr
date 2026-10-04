@@ -1,12 +1,17 @@
 """FastAPI application: the web IVR builder.
 
-Server-side rendered forms (Jinja2 + Tailwind CSS CDN) with a 6-step wizard:
-  1. Trunk: SIP trunk configuration (providers, credentials, match IPs)
-  2. Endpoints: softphone and IAX user accounts
-  3. Extensions: dialplan extensions (single, linear, ringall)
-  4. Dialplan: IVR menus, prompts, DTMF options
-  5. SMTP: optional mail delivery and alerts
-  6. Finish & Publish: review, finalize JSON, build confs and reload Asterisk
+Server-side rendered forms (Jinja2 + Tailwind CSS CDN) with a 7-step wizard:
+   1. Trunk: SIP trunk configuration (providers, credentials, match IPs)
+   2. Endpoints: softphone and IAX user accounts
+   3. Extensions: dialplan extensions (single, linear, ringall)
+   4. Dialplan: IVR menus, prompts, DTMF options
+   5. SMTP: optional mail delivery and alerts
+   6. Permissions & Voicemail: filesystem grants, recordings, voicemail
+   7. Finish & Publish: review, finalize JSON, build confs and reload Asterisk
+
+Every page needs a login (bcrypt password in config.yaml, signed session
+cookie). ``OPENIVR_BUILDER_TOKEN`` stays supported for scripts and tests, and a
+builder without credentials falls back to localhost-only access.
 """
 
 from __future__ import annotations
@@ -19,22 +24,43 @@ import secrets
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import anyio
-from fastapi import FastAPI, Request, UploadFile
+from fastapi import FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ..config import Config, SmtpCfg, load_config
-from ..flow import Flow
-from ..media import AUDIO_SUFFIXES, available_sounds, check_prompt_name, list_sound_files
+from ..config import Config, SmtpCfg, load_config, set_config_value
+from ..media import (
+    AUDIO_SUFFIXES,
+    CONVERTIBLE_SUFFIXES,
+    TARGET_SUFFIX,
+    available_sounds,
+    check_prompt_name,
+    convert_audio,
+    ffmpeg_binary,
+    list_sound_files,
+    needs_conversion,
+)
 from ..notify import Notifier
+from .auth import (
+    LOGIN_PATH,
+    MIN_PASSWORD_LENGTH,
+    SESSION_COOKIE,
+    UNPROTECTED_PATHS,
+    AuthError,
+    BuilderAuth,
+    load_auth,
+    save_credentials,
+)
 from .providers import catalog_public, countries, provider_by_id, providers
 from .publish import publish
 from .session import (
     DIALPLAN_ACTIONS,
     DTMF_KEYS,
+    VOICEMAIL_FORMATS,
     STEP_LABELS,
     STEP_PATHS,
     STEPS,
@@ -42,20 +68,25 @@ from .session import (
     load_endpoints,
     load_extensions,
     load_ivr,
+    load_permissions,
     load_progress,
     load_trunk,
     mark_step,
     save_endpoints,
     save_extensions,
     save_ivr,
+    save_permissions,
     save_progress,
     save_trunk,
     snake_case_stem,
     validate_endpoints,
     validate_extensions,
     validate_ivr_document,
+    validate_permissions,
     validate_trunk,
 )
+from .session import load_smtp as read_smtp
+from .session import save_smtp as write_smtp
 
 log = logging.getLogger("openivr.builder")
 
@@ -69,29 +100,6 @@ def default_root() -> Path:
 
 
 # --------------------------------------------------------------------- helpers
-
-
-def write_smtp(root: Path, smtp: dict[str, Any]) -> Path:
-    path = root / "data" / "smtp.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump({"smtp": smtp}, fh, indent=2)
-        fh.write("\n")
-    log.info("Builder saved SMTP settings to %s", path)
-    return path
-
-
-def read_smtp(root: Path) -> dict[str, Any]:
-    path = root / "data" / "smtp.json"
-    if not path.exists():
-        return {}
-    try:
-        with path.open(encoding="utf-8") as fh:
-            data = json.load(fh)
-        smtp = data.get("smtp", data) if isinstance(data, dict) else {}
-        return smtp if isinstance(smtp, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
 
 
 def prompts_of(cfg: Config) -> list[str]:
@@ -127,25 +135,82 @@ def all_validation_errors(root: Path) -> list[str]:
     ivr = load_ivr(root)
     ext_numbers = [str(e.get("number", "")) for e in extensions]
     errors.extend(validate_ivr_document(ivr, ext_numbers))
+
+    # permissions/recording/voicemail step
+    errors.extend(validate_permissions(load_permissions(root)))
     return errors
 
 
 # ------------------------------------------------------------------- security
 
 
-def authorised(request: Request) -> bool:
-    token = os.environ.get("OPENIVR_BUILDER_TOKEN", "")
-    if token:
-        supplied = request.query_params.get("token") or request.headers.get("x-openivr-token")
-        return secrets.compare_digest(str(supplied or ""), token)
+LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def is_local(request: Request) -> bool:
     host = request.client.host if request.client else ""
-    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
+    return host in LOCAL_HOSTS
+
+
+def token_ok(request: Request) -> bool:
+    """OPENIVR_BUILDER_TOKEN keeps working for scripts and tests."""
+    token = os.environ.get("OPENIVR_BUILDER_TOKEN", "")
+    if not token:
+        return False
+    supplied = request.query_params.get("token") or request.headers.get("x-openivr-token")
+    return secrets.compare_digest(str(supplied or ""), token)
+
+
+def session_user(request: Request, auth: BuilderAuth) -> str | None:
+    if token_ok(request):
+        return auth.username or "token"
+    return auth.read(request.cookies.get(SESSION_COOKIE))
+
+
+def state_auth(request: Request) -> BuilderAuth | None:
+    """The app's auth state, provisioned on first use (None outside the app)."""
+    app = getattr(request, "app", None)
+    root = getattr(getattr(app, "state", None), "root", None)
+    if app is None or root is None:
+        return None
+    return get_auth(app, Path(root))
+
+
+def authorised(request: Request, auth: BuilderAuth | None = None) -> bool:
+    """True when the request may drive the builder."""
+    if token_ok(request):
+        return True
+    state = auth or state_auth(request)
+    if state is None:
+        return is_local(request)
+    if session_user(request, state):
+        return True
+    # No credentials configured at all: keep the historical localhost behaviour.
+    return state.local_only and is_local(request)
 
 
 def guard(request: Request) -> JSONResponse | None:
-    if authorised(request):
+    """Block writes that are neither from a session nor from localhost."""
+    if is_local(request) or authorised(request):
         return None
     return JSONResponse({"error": "forbidden: builder POSTs must come from localhost"}, 403)
+
+
+def auth_of(request: Request) -> BuilderAuth:
+    return get_auth(request.app, request.app.state.root)
+
+
+def get_auth(app: FastAPI, root: Path) -> BuilderAuth:
+    """Auth state for this builder process, provisioned on first use.
+
+    Provisioning only happens here (never at import time) so simply importing
+    the module cannot create credentials as a side effect.
+    """
+    auth = getattr(app.state, "auth", None)
+    if auth is None:
+        auth = load_auth(root, load_config(root, bootstrap=True))
+        app.state.auth = auth
+    return auth
 
 
 # ---------------------------------------------------------------- application
@@ -158,25 +223,183 @@ def create_app(root: str | Path | None = None) -> FastAPI:
     app.state.root = root_path
     app.state.keep_open = False
     app.state.server = None
+    app.state.auth = None
+    # No system.json => the builder runs standalone (no Asterisk on this box).
+    app.state.standalone = not (root_path / "system.json").is_file()
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        """Every builder page needs a session (or the API token)."""
+        path = request.url.path
+        if path in UNPROTECTED_PATHS or path.startswith("/static"):
+            return await call_next(request)
+        if authorised(request):
+            return await call_next(request)
+        if path.startswith("/api"):
+            return JSONResponse({"error": "unauthorized: log in first"}, 401)
+        target = path if request.method == "GET" else "/"
+        return RedirectResponse(f"{LOGIN_PATH}?next={quote(target)}", status_code=303)
 
     def render(
         request: Request, name: str, ctx: dict[str, Any] | None = None, status: int = 200
     ) -> HTMLResponse:
         cfg = load_config(root_path)
+        auth = get_auth(app, root_path)
         base: dict[str, Any] = {
             "request": request,
             "root": root_path,
             "config": cfg,
             "sounds": prompts_of(cfg),
+            # every template can rely on these; load once per render
+            "permissions": load_permissions(root_path),
             "keep_open": app.state.keep_open,
+            "standalone": app.state.standalone,
+            "auth": auth,
+            "current_user": session_user(request, auth),
+            "auth_required": not auth.local_only,
             **stepper_context(root_path),
         }
         base.update(ctx or {})
         return templates.TemplateResponse(
             request=request, name=name, context=base, status_code=status
         )
+
+    # ------------------------------------------------------------- Login page
+
+    @app.get(LOGIN_PATH, response_class=HTMLResponse)
+    async def login_page(request: Request) -> Any:
+        auth = get_auth(app, root_path)
+        if auth.local_only:
+            return RedirectResponse(STEP_PATHS.get("trunk", "/trunk"), status_code=303)
+        return render(request, "login.html", {"error": None})
+
+    @app.post(LOGIN_PATH)
+    async def login_submit(request: Request, username: str = Form(""), password: str = Form("")) -> Any:
+        auth = get_auth(app, root_path)
+        target = request.query_params.get("next") or request.cookies.get("openivr_next") or "/"
+        if not auth.check(username, password):
+            log.warning("failed builder login for %r", username)
+            return render(
+                request,
+                "login.html",
+                {"error": "Wrong username or password", "username": username, "next": target},
+                status=401,
+            )
+        log.info("builder login ok for %r", username)
+        response = RedirectResponse(
+            target if str(target).startswith("/") else "/", status_code=303
+        )
+        response.set_cookie(
+            SESSION_COOKIE,
+            auth.issue(username),
+            max_age=auth.session_ttl,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+        return response
+
+    @app.get("/logout")
+    @app.post("/logout")
+    async def logout() -> RedirectResponse:
+        response = RedirectResponse(LOGIN_PATH, status_code=303)
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    # ------------------------------------------------------------- Settings
+
+    @app.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request) -> Any:
+        auth = auth_of(request)
+        return render(
+            request,
+            "settings.html",
+            {"message": None, "error": None, "min_password_length": MIN_PASSWORD_LENGTH},
+        )
+
+    @app.post("/settings")
+    async def settings_save(
+        request: Request,
+        username: str = Form(""),
+        current_password: str = Form(""),
+        new_password: str = Form(""),
+        new_password_confirm: str = Form(""),
+    ) -> Any:
+        auth = auth_of(request)
+        denied = guard(request)
+        if denied:
+            return denied
+        # Verify against the *stored* username: changing the username field
+        # must not be able to skip the current-password check.
+        if auth.configured and not auth.check(auth.username, current_password):
+            return render(
+                request,
+                "settings.html",
+                {
+                    "error": "Current password does not match",
+                    "message": None,
+                    "username": username,
+                    "min_password_length": MIN_PASSWORD_LENGTH,
+                },
+                status=400,
+            )
+        if not new_password:
+            new_password_confirm = new_password_confirm or new_password
+        if new_password and new_password != new_password_confirm:
+            return render(
+                request,
+                "settings.html",
+                {
+                    "error": "The new passwords do not match",
+                    "message": None,
+                    "username": username,
+                    "min_password_length": MIN_PASSWORD_LENGTH,
+                },
+                status=400,
+            )
+        if not username.strip():
+            return render(
+                request,
+                "settings.html",
+                {
+                    "error": "Username must not be empty",
+                    "message": None,
+                    "username": auth.username,
+                    "min_password_length": MIN_PASSWORD_LENGTH,
+                },
+                status=400,
+            )
+        try:
+            save_credentials(
+                root_path,
+                auth,
+                username=username,
+                password=new_password or None,
+            )
+        except AuthError as exc:
+            return render(
+                request,
+                "settings.html",
+                {
+                    "error": str(exc),
+                    "message": None,
+                    "username": username,
+                    "min_password_length": MIN_PASSWORD_LENGTH,
+                },
+                status=400,
+            )
+        response = RedirectResponse("/settings?ok=Credentials+updated", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE,
+            auth.issue(username),
+            max_age=auth.session_ttl,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+        return response
 
     # ----------------------------------------------------------- Root router
 
@@ -185,6 +408,24 @@ def create_app(root: str | Path | None = None) -> FastAPI:
         step = first_incomplete_step(root_path)
         target = STEP_PATHS.get(step, "/trunk")
         return RedirectResponse(target, status_code=303)
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard(request: Request) -> HTMLResponse:
+        """Overview of the builder state (also the landing page after login)."""
+        cfg = load_config(root_path)
+        ivr = load_ivr(root_path)
+        return render(
+            request,
+            "index.html",
+            {
+                "menus": sorted((ivr.get("menus") or {}).keys()),
+                "files": list_sound_files(cfg.sounds_dir),
+                "smtp": read_smtp(root_path),
+                "voicemail": cfg.voicemail.enabled,
+                "permissions": load_permissions(root_path),
+                "errors": all_validation_errors(root_path),
+            },
+        )
 
     # ---------------------------------------------------------- Step 1: Trunk
 
@@ -448,6 +689,9 @@ def create_app(root: str | Path | None = None) -> FastAPI:
                 "dtmf_keys": DTMF_KEYS,
                 "actions": DIALPLAN_ACTIONS,
                 "errors": [],
+                "sound_files": list_sound_files(load_config(root_path).sounds_dir),
+                "ffmpeg_available": bool(ffmpeg_binary()),
+                "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
             },
         )
 
@@ -493,6 +737,7 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             menu_names = ["main"]
 
         menus: dict[str, Any] = {}
+        duplicate_dtmf_errors: list[str] = []
         for mname in menu_names:
             mprompt = str(form.get(f"menu_prompt__{mname}") or "").strip()
             dtmf_options: dict[str, Any] = {}
@@ -509,6 +754,9 @@ def create_app(root: str | Path | None = None) -> FastAPI:
                 if not dkey or dkey not in DTMF_KEYS:
                     continue
                 if dkey in dtmf_options:
+                    duplicate_dtmf_errors.append(
+                        f"Menu {mname!r}: DTMF key {dkey!r} is used more than once"
+                    )
                     continue
                 action = str(form.get(f"dtmf_action__{idx}__{mname}") or "hangup").strip()
                 desc = str(form.get(f"dtmf_description__{idx}__{mname}") or "").strip()
@@ -569,7 +817,7 @@ def create_app(root: str | Path | None = None) -> FastAPI:
 
         extensions = load_extensions(root_path)
         ext_numbers = [str(e.get("number", "")) for e in extensions]
-        errors = validate_ivr_document(ivr_data, ext_numbers)
+        errors = validate_ivr_document(ivr_data, ext_numbers) + duplicate_dtmf_errors
         if errors:
             return render(
                 request,
@@ -586,14 +834,9 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             )
 
         save_ivr(root_path, ivr_data)
-        # Also sync runtime flow file for ARI runtime/testing
-        try:
-            cfg = load_config(root_path)
-            Flow.from_dict(ivr_data).save(cfg.flow_path)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Could not sync Flow runtime copy: %s", exc)
 
-        return RedirectResponse("/smtp?ok=Dialplan+configuration+saved", status_code=303)
+        # step order: dialplan -> permissions -> smtp -> finish
+        return RedirectResponse("/permissions?ok=Dialplan+configuration+saved", status_code=303)
 
     @app.post("/dialplan/menu/add")
     async def menu_add(request: Request) -> Any:
@@ -629,7 +872,99 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             save_ivr(root_path, ivr)
         return RedirectResponse("/dialplan", status_code=303)
 
-    # ------------------------------------------------------------ Step 5: SMTP
+    # -------------------------------------------- Step 5: Permissions & Voicemail
+
+    @app.get("/permissions", response_class=HTMLResponse)
+    async def permissions_page(request: Request) -> Any:
+        progress = load_progress(root_path)
+        progress["current_step"] = "permissions"
+        save_progress(root_path, progress)
+
+        values = load_permissions(root_path)
+        cfg = load_config(root_path)
+        return render(
+            request,
+            "permissions.html",
+            {
+                "values": values,
+                "errors": validate_permissions(values),
+                "voicemail_formats": sorted(VOICEMAIL_FORMATS),
+                "voicemail_dir": str(cfg.voicemail_dir),
+                "recordings_dir": str(cfg.recordings_dir),
+            },
+        )
+
+    @app.post("/permissions")
+    async def permissions_save(request: Request) -> Any:
+        denied = guard(request)
+        if denied:
+            return denied
+        form = await request.form()
+
+        def _on(name: str) -> bool:
+            return str(form.get(name) or "").lower() in {"1", "on", "true", "yes", "checked"}
+
+        def _int(name: str, fallback: int) -> int:
+            try:
+                return int(str(form.get(name) or fallback).strip())
+            except (TypeError, ValueError):
+                return fallback
+
+        values = {
+            "voicemail_enabled": _on("voicemail_enabled"),
+            "voicemail_dir": str(form.get("voicemail_dir") or "").strip()
+            or "data/recordings/voicemail",
+            "voicemail_format": str(form.get("voicemail_format") or "wav").lower(),
+            "voicemail_max_duration": _int("voicemail_max_duration", 120),
+            "recording_enabled": _on("recording_enabled"),
+            "recording_dir": str(form.get("recording_dir") or "").strip()
+            or "/var/spool/asterisk/monitor",
+            "recording_retention_days": _int("recording_retention_days", 30),
+        }
+        errors = validate_permissions(values)
+        cfg = load_config(root_path)
+        for key, value in (
+            ("voicemail.enabled", values["voicemail_enabled"]),
+            ("voicemail.dir", values["voicemail_dir"]),
+            ("voicemail.format", values["voicemail_format"]),
+            ("voicemail.max_duration", values["voicemail_max_duration"]),
+            ("record.enabled", values["recording_enabled"]),
+            ("record.mixmonitor_dir", values["recording_dir"]),
+            ("record.retention_days", values["recording_retention_days"]),
+        ):
+            try:
+                set_config_value(root_path, key, value)
+            except Exception as exc:  # noqa: BLE001 - keep the form usable
+                log.error("could not store %s: %s", key, exc)
+                errors.append(f"could not save {key} into config.yaml: {exc}")
+
+        if values["voicemail_enabled"]:
+            cfg.voicemail_dir.mkdir(parents=True, exist_ok=True)
+        if values["recording_enabled"] and not Path(values["recording_dir"]).exists():
+            info = f"Recording directory {values['recording_dir']} does not exist yet"
+            log.warning(info)
+
+        save_permissions(root_path, values)
+        if errors:
+            return render(
+                request,
+                "permissions.html",
+                {
+                    "values": values,
+                    "errors": errors,
+                    "voicemail_formats": sorted(VOICEMAIL_FORMATS),
+                    "voicemail_dir": str(cfg.voicemail_dir),
+                    "recordings_dir": str(cfg.recordings_dir),
+                },
+                status=400,
+            )
+        progress = load_progress(root_path)
+        progress["current_step"] = "smtp"
+        progress["permissions_done"] = True
+        save_progress(root_path, progress)
+        return RedirectResponse("/smtp?ok=Permissions+saved", status_code=303)
+
+    # ------------------------------------------------------------ Step 6: SMTP
 
     @app.get("/smtp", response_class=HTMLResponse)
     async def smtp_page(
@@ -800,8 +1135,24 @@ def create_app(root: str | Path | None = None) -> FastAPI:
                 status=400,
             )
 
-        result = publish(root_path)
+        result = publish(root_path, standalone=app.state.standalone)
         progress = load_progress(root_path)
+        if result.get("copy_error"):
+            progress["published"] = False
+            progress["publish_needed"] = True
+            save_progress(root_path, progress)
+            if "application/json" in request.headers.get("accept", ""):
+                return JSONResponse(result, status_code=207)
+            return render(
+                request,
+                "done.html",
+                {
+                    "message": "Configuration was generated but could not be copied to Asterisk.",
+                    "publish_info": result,
+                },
+                status=207,
+            )
+
         progress["published"] = True
         progress["publish_needed"] = False
         save_progress(root_path, progress)
@@ -830,26 +1181,9 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             },
         )
 
-    # ------------------------------------------------------------------ Media
+# ------------------------------------------------------- Prompts (media)
 
-    @app.get("/media", response_class=HTMLResponse)
-    async def media_page(
-        request: Request, ok: str | None = None, err: str | None = None
-    ) -> HTMLResponse:
-        cfg = load_config(root_path)
-        return render(
-            request,
-            "media.html",
-            {
-                "files": list_sound_files(cfg.sounds_dir),
-                "ok": ok,
-                "err": err,
-                "max_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
-                "allowed": ", ".join(sorted(AUDIO_SUFFIXES)),
-            },
-        )
-
-    @app.post("/media/upload")
+    @app.post("/dialplan/upload")
     async def media_upload(request: Request) -> Any:
         denied = guard(request)
         if denied:
@@ -861,19 +1195,25 @@ def create_app(root: str | Path | None = None) -> FastAPI:
         def _fail(msg: str) -> Any:
             if wants_json:
                 return JSONResponse({"ok": False, "error": msg}, status_code=400)
-            return RedirectResponse(f"/media?err={msg}", status_code=303)
+            return RedirectResponse(f"/dialplan?err={msg}", status_code=303)
 
         if upload is None or not upload.filename:
             return _fail("Choose an audio file first")
 
         original = Path(upload.filename).name
         suffix = Path(original).suffix.lower()
-        if suffix not in AUDIO_SUFFIXES:
-            return _fail(f"Unsupported audio format {suffix}")
+        if suffix not in AUDIO_SUFFIXES and suffix not in CONVERTIBLE_SUFFIXES:
+            return _fail(
+                f"Unsupported audio format {suffix or 'none'} "
+                f"(use {', '.join(sorted(AUDIO_SUFFIXES | CONVERTIBLE_SUFFIXES))})"
+            )
 
         # Plan specifies snake_case naming for audio uploads
         stem = snake_case_stem(original)
-        name = f"{stem}{suffix}"
+        convert = needs_conversion(suffix)
+        # Converted uploads always land as .wav (Asterisk's most portable
+        # format); files Asterisk already understands keep their own suffix.
+        name = f"{stem}{TARGET_SUFFIX if convert else suffix}"
         problem = check_prompt_name(name)
         if problem:
             return _fail(problem)
@@ -893,20 +1233,32 @@ def create_app(root: str | Path | None = None) -> FastAPI:
                     fh.write(chunk)
             if size == 0:
                 raise ValueError("Uploaded file is empty")
-            tmp.replace(target)
         except ValueError as exc:
             tmp.unlink(missing_ok=True)
             return _fail(str(exc))
         finally:
             await upload.close()
 
-        log.info("Builder saved prompt %s (%d bytes)", name, size)
-        prompt = Path(name).stem if suffix == ".wav" else name
+        note = ""
+        if convert:
+            source = cfg.sounds_dir / f".source-{stem}{suffix}"
+            tmp.rename(source)
+            message = convert_audio(source, stem, cfg.sounds_dir)
+            source.unlink(missing_ok=True)
+            if not target.is_file():
+                return _fail(message)
+            note = f"stored {name} ({message})"
+        else:
+            tmp.replace(target)
+            note = f"stored {name}"
+
+        log.info("Builder saved prompt %s (%d bytes, %s)", name, size, note)
+        prompt = Path(name).stem if name.endswith(TARGET_SUFFIX) else name
         if wants_json:
             return JSONResponse({"ok": True, "name": name, "prompt": prompt, "size": size})
-        return RedirectResponse(f"/media?ok=Stored+{name}+({size:,}+bytes)", status_code=303)
+        return RedirectResponse(f"/dialplan?ok={note.replace(' ', '+')}", status_code=303)
 
-    @app.post("/media/delete")
+    @app.post("/dialplan/delete")
     async def media_delete(request: Request) -> Any:
         denied = guard(request)
         if denied:
@@ -915,14 +1267,14 @@ def create_app(root: str | Path | None = None) -> FastAPI:
         name = Path(str(form.get("name") or "")).name
         cfg = load_config(root_path)
         if not name:
-            return RedirectResponse("/media", status_code=303)
+            return RedirectResponse("/dialplan", status_code=303)
 
         for candidate in (cfg.sounds_dir / name, cfg.sounds_dir / f"{name}.wav"):
             if candidate.is_file():
                 candidate.unlink()
                 log.info("Builder deleted prompt %s", candidate.name)
-                return RedirectResponse(f"/media?ok=Deleted+{candidate.name}", status_code=303)
-        return RedirectResponse("/media?err=File+not+found", status_code=303)
+                return RedirectResponse(f"/dialplan?ok=Deleted+{candidate.name}", status_code=303)
+        return RedirectResponse("/dialplan?err=File+not+found", status_code=303)
 
     # ------------------------------------------------------------- API routes
 
@@ -990,12 +1342,15 @@ def serve(
     port: int = 8090,
     root: str | Path | None = None,
     keep_open: bool = False,
+    standalone: bool | None = None,
 ) -> None:
     """Run the builder with uvicorn (blocking)."""
     import uvicorn
 
     application = create_app(root)
     application.state.keep_open = keep_open
+    if standalone is not None:
+        application.state.standalone = standalone
     server = uvicorn.Server(
         uvicorn.Config(application, host=host, port=port, log_level="info", access_log=False)
     )

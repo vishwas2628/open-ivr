@@ -30,10 +30,12 @@ convert your own prompts.
 ## 4. Run the whole pipeline
 
 ```sh
-./run_ivr.sh
+make venv
+make install
+make builder
 ```
 
-That script performs plan steps 1–4:
+Those targets perform plan steps 1–4:
 
 1. **System module** – `sudo ./system/install.sh`:
    preflight → Asterisk → firewall → ARI → trunk → extensions + dialplan →

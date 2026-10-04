@@ -7,16 +7,28 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-data/logs/*
-data/recordings/*
-!data/recordings/.gitkeep
-!data/logs/.gitkeep
-data/sounds/*
-!data/sounds/README.md
+
+# ── Runtime data ─────────────────────────────────────────────────────────────
+data/*
+!data/.gitkeep
 !data/sounds/.gitkeep
-data/ivr_flow.json
-data/smtp.json
+!data/sounds/README.md
+!data/logs/.gitkeep
+!data/recordings/.gitkeep
+data/asterisk-build/
+openivr/data/*
+!openivr/data/.gitkeep
+
+# ── State files ─────────────────────────────────────────────────────────────
+.state/
+system/.state/
+**/.state/
+
+# ── Secrets / generated config ──────────────────────────────────────────────
 system.json
+config.yaml
+
+# ── Audio artefacts ─────────────────────────────────────────────────────────
 *.log
 *.wav
 *.gsm
@@ -26,9 +38,9 @@ system.json
 *.al
 *.raw
 *.pcm
+
 .DS_Store
 asterisk-know-source.md
 plan.md
-data/*
-!data/.gitkeep
+plan_refactor.md
 temp

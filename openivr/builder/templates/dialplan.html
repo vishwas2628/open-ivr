@@ -4,7 +4,7 @@
 <div class="space-y-6">
 
   <div class="text-center space-y-2">
-    <div class="step-eyebrow pt-2">Step 4 of 6 — Dialplan &amp; Menus</div>
+    <div class="step-eyebrow pt-2">Step {{ steps.index('dialplan') + 1 }} of {{ steps|length }} — Dialplan &amp; Menus</div>
     <p class="text-sm text-black max-w-2xl mx-auto">Greeting, timeouts, and keypad routing (0–9, *, #).</p>
   </div>
 
@@ -201,6 +201,55 @@
   <form id="delete-menu-form" method="post" action="/dialplan/menu/delete" class="hidden">
     <input type="hidden" id="delete-menu-name" name="menu_name" value="">
   </form>
+
+  <!-- Audio library: upload + manage the prompt files this page references -->
+  <div class="max-w-4xl mx-auto space-y-6">
+    <div class="panel-card p-6 space-y-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="section-title">Prompt Library ({{ sound_files|length }})</h2>
+        {% if ffmpeg_available %}
+        <span class="field-help">mp3/m4a/flac uploads are converted to 8 kHz mono wav</span>
+        {% else %}
+        <span class="field-help">install ffmpeg to upload mp3/m4a/flac</span>
+        {% endif %}
+      </div>
+      <form method="post" action="/dialplan/upload" enctype="multipart/form-data"
+            class="flex flex-wrap items-center gap-3">
+        <input id="prompt-file" type="file" name="file" required
+               accept=".wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.m4a,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff"
+               class="form-input flex-1 min-w-[200px]">
+        <button type="submit" class="btn-primary btn-sm">Upload prompt</button>
+      </form>
+      <p class="field-help">
+        Uploaded files are renamed to snake_case. Max {{ max_upload_mb }} MB.
+        Tip: <code>sox input.wav -r 8000 -c 1 -b 16 output.wav</code>
+      </p>
+      {% if sound_files %}
+      <div class="table-container">
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>File</th><th>Size</th><th></th></tr></thead>
+          <tbody>
+            {% for f in sound_files %}
+            <tr>
+              <td class="font-mono text-xs font-bold">{{ f.name }}</td>
+              <td class="text-xs">{{ f.relpath }}</td>
+              <td class="text-xs">{{ '{:,}'.format(f.size) }} B</td>
+              <td class="text-center">
+                <form method="post" action="/dialplan/delete" onsubmit="return confirm('Delete {{ f.name }}?');">
+                  <input type="hidden" name="name" value="{{ f.relpath }}">
+                  <button type="submit" class="btn-danger-subtle" title="Delete">X</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-xs text-center py-4">No prompts uploaded yet.</p>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 <script>
@@ -219,17 +268,28 @@ function showMenu(name) {
   if (b) b.classList.remove('hidden');
   if (t) t.classList.add('active');
 }
+function setActionFieldVisibility(el, visible) {
+  el.classList.toggle('hidden', !visible);
+  const customWrapper = el._customDropdown ? el._customDropdown.wrapper : null;
+  if (customWrapper) customWrapper.classList.toggle('hidden', !visible);
+}
 function toggleActionFields(sel) {
   const row = sel.closest('tr');
-  row.querySelectorAll('.action-field').forEach(el => el.classList.add('hidden'));
+  row.querySelectorAll('.action-field').forEach(el => setActionFieldVisibility(el, false));
   const a = sel.value;
-  if (a === 'dial') row.querySelector('.action-dial')?.classList.remove('hidden');
-  if (a === 'submenu' || a === 'parent') row.querySelector('.action-submenu')?.classList.remove('hidden');
-  if (a === 'voicemail') row.querySelector('.action-voicemail')?.classList.remove('hidden');
+  if (a === 'dial') { const el = row.querySelector('.action-dial'); if (el) setActionFieldVisibility(el, true); }
+  if (a === 'submenu' || a === 'parent') { const el = row.querySelector('.action-submenu'); if (el) setActionFieldVisibility(el, true); }
+  if (a === 'voicemail') { const el = row.querySelector('.action-voicemail'); if (el) setActionFieldVisibility(el, true); }
 }
+document.addEventListener('change', (e) => {
+  if (e.target.matches('select[name^="dtmf_key__"]')) {
+    refreshUniqueDtmfKeys(e.target.closest('tbody'));
+  }
+});
 document.addEventListener('DOMContentLoaded', () => {
   const s = document.querySelector('select[name="start_menu"]');
   if (s && s.value) showMenu(s.value);
+  document.querySelectorAll('tbody[data-menu-body]').forEach(refreshUniqueDtmfKeys);
 });
 
 async function pickPrompt(btn) {
@@ -238,7 +298,7 @@ async function pickPrompt(btn) {
   const label = wrap.querySelector('.prompt-name');
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.oga,.ogg';
+  input.accept = '.wav,.sln,.sln16,.gsm,.ulaw,.alaw,.mp3,.m4a,.aac,.flac,.ogg,.oga,.opus,.wma,.aiff';
   input.onchange = async () => {
     const f = input.files && input.files[0];
     if (!f) return;
@@ -246,7 +306,7 @@ async function pickPrompt(btn) {
     fd.append('file', f);
     btn.disabled = true; btn.textContent = 'Uploading...';
     try {
-      const res = await fetch('/media/upload', {method: 'POST', body: fd, headers: {'Accept': 'application/json'}});
+      const res = await fetch('/dialplan/upload', {method: 'POST', body: fd, headers: {'Accept': 'application/json'}});
       const data = await res.json();
       if (data.ok) {
         hidden.value = data.prompt;
@@ -260,6 +320,29 @@ async function pickPrompt(btn) {
   input.click();
 }
 
+function refreshUniqueDtmfKeys(tbody) {
+  if (!tbody) return;
+  const selects = Array.from(tbody.querySelectorAll('select[name^="dtmf_key__"]'));
+  if (!selects.length) return;
+  const used = new Set();
+  selects.forEach((sel) => {
+    let value = sel.value;
+    if (!value || used.has(value)) {
+      const next = Array.from(sel.options).find(option => option.value && !used.has(option.value));
+      if (next) {
+        sel.value = next.value;
+        value = next.value;
+      }
+    }
+    if (value) used.add(value);
+  });
+  selects.forEach((sel) => {
+    Array.from(sel.options).forEach((option) => {
+      option.disabled = used.has(option.value) && option.value !== sel.value;
+    });
+    if (sel._customDropdown) sel._customDropdown.sync();
+  });
+}
 function reindexMenuRows(menu) {
   const tbody = document.querySelector('tbody[data-menu-body="'+menu+'"]');
   if (!tbody) return;
@@ -268,6 +351,7 @@ function reindexMenuRows(menu) {
       el.name = el.name.replace(/__\d+__/, '__' + i + '__');
     });
   });
+  refreshUniqueDtmfKeys(tbody);
 }
 
 function addDtmfRow(menu) {
@@ -296,6 +380,8 @@ function addDtmfRow(menu) {
     </td>
     <td><button type="button" onclick="this.closest('tr').remove(); reindexMenuRows('${menu}')" class="btn-danger-subtle">X</button></td>`;
   tbody.appendChild(tr);
+  tr.querySelectorAll('select').forEach(selectEl => initCustomDropdown(selectEl));
+  refreshUniqueDtmfKeys(tbody);
   const sel = tr.querySelector('select[name^="dtmf_action__"]');
   if (sel) toggleActionFields(sel);
 }

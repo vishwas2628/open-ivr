@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .session import load_endpoints, load_extensions, load_trunk
+from .session import load_endpoints, load_extensions, load_permissions, load_smtp, load_trunk
 
 SKELETON_ROOT = Path(__file__).resolve().parents[2] / "system" / "asterisk"
 SAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -18,11 +18,24 @@ def trunk_name(trunk: dict[str, Any]) -> str:
     return slug[:32]
 
 
+COMMENT_PREFIXES = (";", "#")
+
+
 def fill_tokens(text: str, mapping: dict[str, str]) -> str:
-    out = text
-    for key, value in mapping.items():
-        out = out.replace("{{" + key + "}}", value)
-    return out
+    """Replace {{token}} placeholders, leaving comments untouched.
+
+    Skeletons document their tokens in comments; substituting there would turn
+    the documentation into values.
+    """
+    out: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith(COMMENT_PREFIXES):
+            out.append(line)
+            continue
+        for key, value in mapping.items():
+            line = line.replace("{{" + key + "}}", value)
+        out.append(line)
+    return "".join(out)
 
 
 def _header(kind: str, name: str) -> str:
@@ -148,7 +161,12 @@ def _tech(item: dict[str, Any], user: str) -> str:
     return "IAX2" if item.get("user_tech", {}).get(user) == "iax" else "PJSIP"
 
 
-def render_extension(item: dict[str, Any], *, ring_timeout: str = "${RING_TIMEOUT}") -> str:
+def render_extension(
+    item: dict[str, Any],
+    *,
+    ring_timeout: str = "${RING_TIMEOUT}",
+    record: dict[str, Any] | None = None,
+) -> str:
     number = str(item["number"])
     strategy = str(item.get("strategy") or "single")
     users = [str(u) for u in (item.get("users") or [])]
@@ -157,6 +175,11 @@ def render_extension(item: dict[str, Any], *, ring_timeout: str = "${RING_TIMEOU
         "[extensions]",
         f"exten => {number},1,NoOp(openivr ext {number} {strategy})",
     ]
+    if record and record.get("enabled"):
+        directory = str(record.get("dir") or "").strip()
+        if directory:
+            lines.append(f" same => n,Set(MIXMONITOR_DIR={directory})")
+            lines.append(" same => n,MixMonitor(${MIXMONITOR_DIR}/${UNIQUEID},b)")
     if strategy == "ringall":
         lines.append(f" same => n,Queue({number},t,,,{ring_timeout})")
     elif strategy == "linear":
@@ -198,11 +221,55 @@ def user_tech_map(endpoints: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
+ASTERISK_VM_DIR = "/var/spool/asterisk/voicemail"
+
+
+def render_voicemail(
+    permissions: dict[str, Any],
+    smtp: dict[str, Any] | None = None,
+    skeleton: Path | None = None,
+) -> str:
+    """voicemail.conf from the Permissions step + the SMTP settings."""
+    path = skeleton or (SKELETON_ROOT / "voicemail.conf")
+    text = path.read_text(encoding="utf-8")
+    relay = smtp if isinstance(smtp, dict) and smtp.get("enabled") else {}
+    # Asterisk needs an absolute spool path; the builder's own copy directory
+    # (config.yaml voicemail.dir) is where openivr keeps archived copies.
+    maildir = str(permissions.get("voicemail_dir") or "")
+    if not maildir.startswith("/"):
+        maildir = ASTERISK_VM_DIR
+    mapping = {
+        "smtp_host": str(relay.get("host") or ""),
+        "smtp_port": str(relay.get("port") or 587),
+        "smtp_from": str(relay.get("from_address") or relay.get("from") or ""),
+        "smtp_user": str(relay.get("username") or ""),
+        "smtp_pass": str(relay.get("password") or ""),
+        "maxsecs": str(permissions.get("voicemail_max_duration") or 120),
+        "format": str(permissions.get("voicemail_format") or "wav"),
+        "maildir": maildir,
+    }
+    body = fill_tokens(text, mapping)
+    if not permissions.get("voicemail_enabled"):
+        body = "; voicemail disabled in the builder (Permissions step)\n" + body
+    cleaned: list[str] = []
+    for line in body.splitlines(True):
+        # Drop lines whose token resolved to nothing - Asterisk dislikes "key = ".
+        if re.match(r"^[A-Za-z0-9_]+\s*=\s*$", line.rstrip("\n")):
+            continue
+        cleaned.append(line)
+    return _header("voicemail", "general") + "".join(cleaned)
+
+
 def render_all(root: Path) -> dict[str, str]:
     """Return mapping of relative path (under asterisk conf dir) -> contents."""
     trunk = load_trunk(root)
     endpoints = load_endpoints(root)
     extensions = load_extensions(root)
+    permissions = load_permissions(root)
+    record = {
+        "enabled": bool(permissions.get("recording_enabled")),
+        "dir": str(permissions.get("recording_dir") or ""),
+    }
     tech = user_tech_map(endpoints)
     files: dict[str, str] = {}
     if trunk.get("provider_id"):
@@ -218,7 +285,8 @@ def render_all(root: Path) -> dict[str, str]:
         item = dict(ext)
         item["user_tech"] = tech
         number = str(item.get("number"))
-        files[f"extensions/{number}.conf"] = render_extension(item)
+        files[f"extensions/{number}.conf"] = render_extension(item, record=record)
         if str(item.get("strategy")) == "ringall":
             files[f"queues/{number}.conf"] = render_queue(item)
+    files["voicemail.conf"] = render_voicemail(permissions, load_smtp(root))
     return files

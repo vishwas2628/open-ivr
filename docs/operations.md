@@ -13,8 +13,8 @@ The unit runs as `asterisk` from `/opt/openivr` with `PYTHONUNBUFFERED=1`,
 restarts on failure (`Restart=always`, `RestartSec=5`) and stops on `SIGTERM`
 (handled by the runner, which cancels every in-flight call task).
 
-For a local checkout the unit paths follow wherever you cloned: `run_ivr.sh`
-copies the project to `/opt/openivr` and rewrites the unit accordingly. To run
+The unit paths follow wherever you cloned: `sudo make service-start` renders
+`systemd/openivr.service` with the current paths and enables it. To run
 without systemd:
 
 ```sh

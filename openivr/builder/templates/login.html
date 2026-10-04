@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}OpenIVR — Sign in{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto">
+  <div class="bg-white p-6" style="border:2px solid #000;border-radius:10px;">
+    <h1 class="text-xl font-extrabold tracking-tight">Sign in to the IVR Builder</h1>
+    <p class="text-sm text-black/70 mt-1">
+      The builder writes your Asterisk configuration, so it is password protected.
+    </p>
+
+    {% if auth and auth.generated_password %}
+    <div class="notice-box mt-4">
+      <strong>First run for {{ auth.company_name }}.</strong> A one-time password was generated and
+      printed in the console where you started the builder:
+      <code class="font-mono">{{ auth.generated_password }}</code>
+      Sign in with it, then change it under <em>Settings</em>.
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="notice-box mt-4" style="border-color:#b91c1c;color:#b91c1c;">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login{% if next %}?next={{ next }}{% endif %}" class="mt-5 flex flex-col gap-4">
+      <label class="flex flex-col gap-1 text-sm font-semibold">
+        <span>Username</span>
+        <input type="text" name="username" autocomplete="username" autofocus required
+               value="{{ username or (auth.username if auth else '') }}"
+               class="form-input">
+      </label>
+      <label class="flex flex-col gap-1 text-sm font-semibold">
+        <span>Password</span>
+        <input type="password" name="password" autocomplete="current-password" required
+               class="form-input">
+      </label>
+      <button type="submit" class="btn-primary">Sign in</button>
+    </form>
+  </div>
+
+  <p class="text-xs text-black/60 mt-4 text-center">
+    Credentials are stored as a bcrypt hash in <code class="font-mono">config.yaml</code> (mode 0600).
+  </p>
+  <p class="text-xs text-black/60 mt-2 text-center">
+    Forgot your password? You must edit <code class="font-mono">config.yaml</code> manually and
+    replace the <code class="font-mono">password_hash</code> field
+    (see <code class="font-mono">make creds</code>). There is no automated recovery.
+  </p>
+</div>
+{% endblock %}
