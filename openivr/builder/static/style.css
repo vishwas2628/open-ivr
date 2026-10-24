@@ -493,6 +493,7 @@
     border: none;
     color: #000000;
     cursor: pointer;
+    margin-right: 5px;
   }
 
   /* ---------- Buttons ---------- */
@@ -730,7 +731,8 @@
   .table-container {
     border: 2px solid #000000;
     border-radius: var(--radius);
-    overflow-x: auto;
+    /* Commented overflow as this is causing dropdown to get hidden behind the form.*/
+    /* overflow-x: auto; */ 
     background: #ffffff;
     box-shadow: var(--shadow-hard);
   }
@@ -757,7 +759,6 @@
     padding: 10px 12px;
     color: #000000;
     vertical-align: middle;
-    background: #ffffff;
   }
 
   .key-glyph {
