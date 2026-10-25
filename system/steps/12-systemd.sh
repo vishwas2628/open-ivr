@@ -11,7 +11,7 @@ SERVICE_DEST="/etc/systemd/system/openivr.service"
 
 [ -f "${SERVICE_SRC}" ] || die "service template not found: ${SERVICE_SRC}"
 
-have systemctl || { warn "systemctl not available - start OpenIVR manually: ${OPENIVR_PYTHON} -m openivr.ari"; return 0 2>/dev/null || exit 0; }
+have systemctl || { warn "systemctl not available - start OpenIVR manually: ${OPENIVR_PYTHON} -m openivr.core"; return 0 2>/dev/null || exit 0; }
 
 # Render unit file template
 python3 - "${SERVICE_SRC}" "${SERVICE_DEST}" \

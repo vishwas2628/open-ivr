@@ -1,7 +1,7 @@
 """Voicemail: play a greeting, record the caller's message, keep the file.
 
 Recording uses the ARI ``POST /channels/{id}/record`` operation
-(``channel.record`` in asyncari). Asterisk writes the file into its recording
+(``channel.record`` in ari). Asterisk writes the file into its recording
 spool (``/var/spool/asterisk/recording`` by default); afterwards we move it
 into the project so it survives Asterisk spool cleaning and can be e-mailed.
 

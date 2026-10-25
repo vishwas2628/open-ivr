@@ -1,7 +1,7 @@
 # openivr documentation
 
 Self-hosted IVR for Asterisk: a shell installer, a web builder, and an async
-ARI core written with [asyncari](https://github.com/M-o-a-T/asyncari).
+ARI core.
 
 ## Start here
 
@@ -21,7 +21,7 @@ ARI core written with [asyncari](https://github.com/M-o-a-T/asyncari).
 ## How the pieces fit together
 
 ```
-caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (asyncari)
+caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (ari)
                      ▲                              │
                      │                              ├─ menus / DTMF / prompts
                      │                              ├─ voicemail (channel.record)
@@ -43,16 +43,16 @@ The Makefile drives the whole pipeline:
 
 ## Design promises
 
-* **Official asyncari objects** – the core subclasses `ToplevelChannelState`,
+* **Official ARI objects** – the core subclasses `ToplevelChannelState`,
   uses the `DTMFHandler` mix-in and the standard `channel.play`,
   `channel.record`, `channel.continueInDialplan`, `client.channels.originate`
-  operations. No private attributes, no hand-rolled websocket handling.
+  operations.
 * **Short `on_start`** – events keep flowing while a call is in progress;
   `StasisEnd` cancels the call task immediately.
 * **Barge-in everywhere** – any digit stops the current prompt.
 * **Standard library first** – `logging.handlers.QueueListener` for logging,
   `csv` for the CDR, `smtplib` for mail, `zoneinfo` for business hours.
-  Third-party runtime deps are only `asyncari`, `anyio`, `PyYAML`, `fastapi`,
+  Third-party runtime deps are only `anyio`, `httpx`, `wsproto`, `PyYAML`, `fastapi`,
   `uvicorn`, `jinja2`, `python-multipart`.
 * **Everything is data** – the flow lives in `data/ivr_flow.json`; the builder
   and the runtime share one validator (`openivr/flow.py`), so what the builder

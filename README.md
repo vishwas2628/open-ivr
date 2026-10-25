@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/asterisk-20%2B-green.svg" alt="Asterisk 20+">
-  <img src="https://img.shields.io/badge/asyncari-0.20%2B-orange.svg" alt="asyncari">
+  <img src="https://img.shields.io/badge/ari-library-orange.svg" alt="ari">
 </p>
 
 `openivr` turns a plain Asterisk box into an interactive voice menu system:
@@ -27,7 +27,7 @@
   opens a login-protected web builder and `make deploy` publishes it
 * **no config files to hand-edit** - `config.yaml` (chmod 600) is the single
   source of truth, written by the installer, the builder and the CLI
-* **real async** - [asyncari](https://github.com/M-o-a-T/asyncari) with
+* **real async** - native `ari` library with
   `ToplevelChannelState` and the official `DTMFHandler`; barge-in works
 * **server-side rendered** - FastAPI + Jinja, no frontend toolchain
 * **standard library first** - logging handlers, CSV CDR, `smtplib`, `zoneinfo`
@@ -92,7 +92,7 @@ make lint                    # ruff
 ## How it works
 
 ```
-caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (asyncari)
+caller ──SIP──▶ Asterisk ──Stasis(openivr)──▶ openivr core (ari)
                      ▲                              │
                      │  dial action: continueInDialplan│
                      └──────────[openivr-dial]──▶ Dial(PJSIP/…)
@@ -177,6 +177,5 @@ Full reference: [docs/configuration.md](docs/configuration.md).
 
 MIT - see [LICENSE](LICENSE).
 
-Built on [asyncari](https://github.com/M-o-a-T/asyncari) and
-[Asterisk](https://www.asterisk.org). Thanks to the Asterisk community - see
+Built on [Asterisk](https://www.asterisk.org). Thanks to the Asterisk community - see
 [docs/resources.md](docs/resources.md).

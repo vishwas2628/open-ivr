@@ -1,4 +1,4 @@
-"""IVR state machine behaviour, driven by a fake asyncari channel.
+"""IVR state machine behaviour, driven by a fake ari channel.
 
 No Asterisk, no websocket: the fake channel records what the state asked Asterisk
 to do (``play``/``record``/``setChannelVar``/``continueInDialplan``/``hangup``),
@@ -16,9 +16,9 @@ from zoneinfo import ZoneInfo
 import anyio
 import pytest
 
-from openivr.ari.context import build_context
-from openivr.ari.flow import Flow
-from openivr.ari.state import IVRState, _caller_of, in_business_hours
+from openivr.core.context import build_context
+from openivr.core.flow import Flow
+from openivr.core.state import IVRState, _caller_of, in_business_hours
 
 pytestmark = pytest.mark.anyio
 
@@ -65,7 +65,7 @@ class FakeRecording:
 
 
 class FakeClient:
-    """Stand-in for ``asyncari.Client``; the handler only reads ``.taskgroup``."""
+    """Stand-in for ``ari.Client``; the handler only reads ``.taskgroup``."""
 
     def __init__(self) -> None:
         self.taskgroup = None
@@ -110,7 +110,7 @@ class FakeChannel:
         self.continued = kwargs
 
     async def hang_up(self) -> None:
-        """asyncari's ToplevelChannelState sets the reason before calling this."""
+        """ari's ToplevelChannelState sets the reason before calling this."""
         self.hangups.append(self.reason or "normal")
         self.state = "Hangup"
 
@@ -165,7 +165,7 @@ def one_option_flow(
 
 
 async def feed_digits(state: IVRState, digits: str, delay: float = 0.02) -> None:
-    """Deliver DTMF the way asyncari's dispatcher would."""
+    """Deliver DTMF the way ari's dispatcher would."""
     await anyio.sleep(delay)
     for digit in digits:
         await state.on_ChannelDtmfReceived(type("Evt", (), {"digit": digit})())
@@ -184,7 +184,7 @@ async def drive(
     """Run the call to completion (or ``timeout``), feeding ``digits`` first."""
     state._stasis_end.set()
     async with anyio.create_task_group() as tg:
-        state._base_tg = tg  # asyncari exposes the task group read-only
+        state._base_tg = tg  # ari exposes the task group read-only
         if digits:
             tg.start_soon(feed_digits, state, digits, delay)
         tg.start_soon(getattr(state, task))

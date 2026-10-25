@@ -1,6 +1,6 @@
 """The ARI event plumbing in ``Service``.
 
-asyncari registers an event listener in ``_EventHandler.__aenter__`` - iterating
+ari registers an event listener in ``_EventHandler.__aenter__`` - iterating
 the handler without ``async with`` looks like it works but silently receives
 nothing, which would mean the IVR never answers a single call.  The fake client
 below reproduces that contract: events are only delivered to a handler that was
@@ -14,8 +14,8 @@ from typing import Any
 import anyio
 import pytest
 
-from openivr.ari.originate import DIALED_ARG, is_dialed_leg
-from openivr.ari.service import Service
+from openivr.core.originate import DIALED_ARG, is_dialed_leg
+from openivr.core.service import Service
 
 pytestmark = pytest.mark.anyio
 

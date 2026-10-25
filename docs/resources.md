@@ -12,7 +12,8 @@ an IVR misbehaves.
 
 ## ARI
 
-* AsyncARI (used here) - <https://github.com/M-o-a-T/asyncari>
+* Asterisk REST Interface (ARI) docs - <https://docs.asterisk.org/Latest_API/API_Documentation/Asterisk_REST_Interface/>
+* Asterisk REST API Swagger specs - <https://github.com/asterisk/asterisk/tree/master/rest-api>
 * aioari (older reference implementation) - <https://github.com/M-o-a-T/aioari>
 * ARI API explorer - <http://ari.asterisk.org> (log in with
   `/etc/asterisk/ari.conf` credentials)

@@ -2,7 +2,7 @@
 
 Design notes
 ------------
-* Subclasses asyncari's :class:`ToplevelChannelState` (official handler) and the
+* Subclasses ari's :class:`ToplevelChannelState` (official handler) and the
   :class:`DTMFHandler` mix-in, so DTMF arrives through the normal event
   dispatch instead of ad-hoc websocket callbacks.
 * ``on_start`` stays short - it only starts the call task.  Long running work
@@ -22,8 +22,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import anyio
-from asyncari.model import Channel
-from asyncari.state import DTMFHandler, ToplevelChannelState
+from ari.model import Channel
+from ari.state import DTMFHandler, ToplevelChannelState
 
 from .cdr import CallRecord
 from ..config import Config

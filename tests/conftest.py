@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
 
 # Imported after the bootstrap above so `openivr` resolves whether pytest runs
 # as `python -m pytest` or through the bare `pytest` console script.
-from openivr.ari.flow import Flow  # noqa: E402
+from openivr.core.flow import Flow  # noqa: E402
 from openivr.config import load_config  # noqa: E402
 
 

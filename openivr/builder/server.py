@@ -34,13 +34,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import Config, SmtpCfg, load_config, set_config_value
-from ..ari.media import (
+from ..core.media import (
     AUDIO_SUFFIXES,
     available_sounds,
     check_prompt_name,
     list_sound_files,
 )
-from ..ari.notify import Notifier
+from ..core.notify import Notifier
 from .conversion import (
     CONVERTIBLE_SUFFIXES,
     TARGET_SUFFIX,

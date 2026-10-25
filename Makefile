@@ -28,7 +28,7 @@ grant-permissions: ## Re-grant asterisk group permissions (one-time, needs sudo)
 # ----------------------------------------------------------------------- ari
 
 ari:           ## Start the Asterisk ARI multitasking IVR app
-	@$(PYTHON) -m openivr.ari
+	@$(PYTHON) -m openivr.core
 
 # ------------------------------------------------------------------- builder
 
