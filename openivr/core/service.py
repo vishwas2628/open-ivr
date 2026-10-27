@@ -12,7 +12,7 @@ import signal
 from typing import Any
 
 import anyio
-import asyncari
+import ari
 
 from ..config import Config, load_config
 from ..logging_setup import setup_logging
@@ -80,7 +80,7 @@ class Service:
         backoff = float(cfg.ari.reconnect_initial)
         while not self._stop.is_set():
             try:
-                async with asyncari.connect(
+                async with ari.connect(
                     base_url=cfg.ari.base_url,
                     apps=[cfg.app.stasis_app],
                     username=cfg.ari.username,
@@ -129,7 +129,7 @@ class Service:
             tg.cancel_scope.cancel()
 
     async def _listen(self, client) -> None:
-        # asyncari only registers a listener in ``__aenter__``; iterating without
+        # ari only registers a listener in ``__aenter__``; iterating without
         # ``async with`` silently drops every event, so the IVR never sees calls.
         async with client.on_channel_event("StasisStart") as listener:
             async for objs, event in listener:

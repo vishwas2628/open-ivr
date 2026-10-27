@@ -29,7 +29,7 @@ openivr/
 
 ## The event model (the part that matters)
 
-asyncari owns one websocket. Each channel becomes an `IVRState`, a
+The ARI client owns one websocket. Each channel becomes an `IVRState`, a
 `ToplevelChannelState` subclass, registered by unique channel id.
 
 * `on_start(StasisStart)` starts the call task with a `start_soon` and returns
@@ -118,6 +118,4 @@ is what keeps builder and runtime in sync.
   only where the web server requires it.
 * Prefer standard-library implementations (logging handlers, `csv`,
   `smtplib`, `zoneinfo`, `urllib.parse`).
-* Official asyncari APIs only. If a private attribute seems necessary, check
-  `https://github.com/M-o-a-T/asyncari` first - the plan explicitly forbids
-  reimplementing what asyncari already does.
+* Standard ARI APIs only, following the official Asterisk REST API specs.

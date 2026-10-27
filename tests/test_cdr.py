@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from openivr.ari.cdr import CSV_COLUMNS, CallRecord, CdrWriter
+from openivr.core.cdr import CSV_COLUMNS, CallRecord, CdrWriter
 
 pytestmark = pytest.mark.anyio
 

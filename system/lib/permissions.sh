@@ -51,29 +51,65 @@ grant_asterisk_dirs() {
 grant_astctl() {
   local conf="${ASTERISK_ETC}/asterisk.conf"
   local user="${OPENIVR_USER}" group="${OPENIVR_GROUP}"
+  local ctl="${ASTCTL_SOCKET:-/run/asterisk/asterisk.ctl}"
 
   [ -f "${conf}" ] || return 0
-  if grep -Eq '^[[:space:]]*astctlpermissions[[:space:]]*=[[:space:]]*0?660' "${conf}"; then
-    ok "asterisk.conf already sets astctlpermissions 0660"
-    return 0
+
+  # astctl* options are only honoured inside [files]. Some packaged configs
+  # ship the header itself commented out (";[files]"), which silently puts the
+  # following settings under the previous section. Uncomment it first, then
+  # normalize the three options.
+  local backed_up=false
+  backup_conf() {
+    if [ "${backed_up}" = true ]; then
+      return 0
+    fi
+    cp -p "${conf}" "${conf}.openivr.bak"
+    backed_up=true
+  }
+
+  local header_fixed=false
+  if ! grep -Eq '^[[:space:]]*\[files\][[:space:]]*$' "${conf}" \
+     && grep -Eq '^[[:space:]]*;+[[:space:]]*\[files\][[:space:]]*$' "${conf}"; then
+    backup_conf
+    sed -i 's|^[[:space:]]*;\+[[:space:]]*\[files\][[:space:]]*$|[files]|' "${conf}"
+    header_fixed=true
+    ok "asterisk.conf: uncommented the [files] section"
   fi
 
-  cp -p "${conf}" "${conf}.openivr.bak"
-  sed -i \
-    -e "s|^;[[:space:]]*astctlpermissions[[:space:]]*=.*|astctlpermissions = 0660|" \
-    -e "s|^;[[:space:]]*astctlowner[[:space:]]*=.*|astctlowner = ${user}|" \
-    -e "s|^;[[:space:]]*astctlgroup[[:space:]]*=.*|astctlgroup = ${group}|" \
-    "${conf}"
+  if ! grep -Eq '^[[:space:]]*astctlpermissions[[:space:]]*=[[:space:]]*0?660' "${conf}" \
+     || ! grep -Eq "^[[:space:]]*astctlowner[[:space:]]*=[[:space:]]*${user}[[:space:]]*$" "${conf}" \
+     || ! grep -Eq "^[[:space:]]*astctlgroup[[:space:]]*=[[:space:]]*${group}[[:space:]]*$" "${conf}"; then
+    backup_conf
+    sed -i \
+      -e "s|^[[:space:]]*;\?[[:space:]]*astctlpermissions[[:space:]]*=.*|astctlpermissions = 0660|" \
+      -e "s|^[[:space:]]*;\?[[:space:]]*astctlowner[[:space:]]*=.*|astctlowner = ${user}|" \
+      -e "s|^[[:space:]]*;\?[[:space:]]*astctlgroup[[:space:]]*=.*|astctlgroup = ${group}|" \
+      "${conf}"
 
-  if grep -Eq '^astctlpermissions[[:space:]]*=[[:space:]]*0?660' "${conf}"; then
-    ok "asterisk.conf: astctlpermissions 0660, ${user}:${group} (backup: ${conf}.openivr.bak)"
-    if systemctl is-active --quiet asterisk; then
+    if grep -Eq '^[[:space:]]*astctlpermissions[[:space:]]*=[[:space:]]*0?660' "${conf}"; then
+      ok "asterisk.conf: astctlpermissions 0660, ${user}:${group} (backup: ${conf}.openivr.bak)"
+    else
+      warn "could not patch ${conf}; add 'astctlpermissions = 0660' manually or reload needs sudo"
+      return 0
+    fi
+  elif [ "${header_fixed}" = false ]; then
+    ok "asterisk.conf already sets astctlpermissions 0660"
+  fi
+
+  # asterisk.conf only affects sockets created from now on. Fix the live socket
+  # too: a previously-started Asterisk may still own a 0755 socket, which is
+  # exactly the case when the conf was already patched by an earlier run.
+  if [ -S "${ctl}" ] && { [ "$(stat -c %a "${ctl}")" != "660" ] || [ "$(stat -c %G "${ctl}")" != "${group}" ]; }; then
+    if chgrp "${group}" "${ctl}" 2>/dev/null && chmod 0660 "${ctl}" 2>/dev/null; then
+      ok "fixed live CLI socket ${ctl} (${group}, 0660)"
+    elif systemctl is-active --quiet asterisk; then
       systemctl restart asterisk >/dev/null 2>&1 \
         && ok "asterisk restarted so the CLI socket is group-writable" \
         || warn "restart asterisk to apply the group-writable CLI socket"
+    else
+      warn "restart asterisk to apply the group-writable CLI socket"
     fi
-  else
-    warn "could not patch ${conf}; add 'astctlpermissions = 0660' manually or reload needs sudo"
   fi
 }
 

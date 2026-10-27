@@ -5,7 +5,7 @@ from __future__ import annotations
 import anyio
 import pytest
 
-from openivr.ari.dtmf import Collected, DigitStream, RecordingDigitSink
+from openivr.core.dtmf import Collected, DigitStream, RecordingDigitSink
 
 pytestmark = pytest.mark.anyio
 

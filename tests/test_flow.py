@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from conftest import SAMPLE_FLOW, write_flow
 
-from openivr.ari.flow import ACTIONS, Flow, FlowError, menu_tree, validate
+from openivr.core.flow import ACTIONS, Flow, FlowError, menu_tree, validate
 
 
 def test_load_sample_flow(cfg, flow: Flow) -> None:

@@ -1,4 +1,4 @@
-"""Entry point for python -m openivr.ari."""
+"""Entry point for python -m openivr.core."""
 
 import sys
 from .service import run_app

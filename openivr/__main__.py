@@ -29,14 +29,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import anyio
-import asyncari
+import ari
 
 from . import __version__
-from .ari.flow import Flow, FlowError, menu_tree, validate
-from .ari.media import available_sounds, list_sound_files
-from .ari.notify import Notifier
-from .ari.originate import originate_simple
-from .ari.service import Service
+from .core.flow import Flow, FlowError, menu_tree, validate
+from .core.media import available_sounds, list_sound_files
+from .core.notify import Notifier
+from .core.originate import originate_simple
+from .core.service import Service
 from .builder.auth import (
     AuthError,
     generate_password,
@@ -103,8 +103,8 @@ ARI_PREFIX = "/ari"
 def ari_url(cfg: Config, path: str = "") -> str:
     """Full ARI REST URL for *path* (``asterisk/info``, ``applications`` ...).
 
-    asyncari appends the ``/ari`` prefix to ``ari.base_url`` itself when it
-    loads the Swagger document, so the configured base URL stays prefix-free.
+    The ARI client appends the ``/ari`` prefix to ``ari.base_url`` itself,
+    so the configured base URL stays prefix-free.
     """
     base = (cfg.ari.base_url or "http://127.0.0.1:8088").rstrip("/")
     if not base.endswith(ARI_PREFIX):
@@ -404,7 +404,7 @@ def cmd_originate(args: argparse.Namespace) -> int:
     log = setup_logging(cfg)
 
     async def main() -> int:
-        async with asyncari.connect(
+        async with ari.connect(
             base_url=cfg.ari.base_url,
             apps=[cfg.app.stasis_app],
             username=cfg.ari.username,

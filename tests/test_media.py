@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from openivr.__main__ import main
 from openivr.builder.server import create_app, get_auth
-from openivr.ari.media import (
+from openivr.core.media import (
     AUDIO_SUFFIXES,
     available_sounds,
     check_prompt_name,

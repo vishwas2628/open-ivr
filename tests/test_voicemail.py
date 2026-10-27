@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from openivr.ari.voicemail import VoicemailBox, VoicemailResult, sanitise_mailbox
+from openivr.core.voicemail import VoicemailBox, VoicemailResult, sanitise_mailbox
 
 pytestmark = pytest.mark.anyio
 
@@ -22,7 +22,7 @@ class FakeRecording:
 
 
 class FakeChannel:
-    """Minimal stand-in for an asyncari Channel."""
+    """Minimal stand-in for an ari Channel."""
 
     def __init__(self, cfg, *, duration: int = 7, write_spool: bool = True) -> None:
         self.cfg = cfg

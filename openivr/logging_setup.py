@@ -102,7 +102,7 @@ def setup_logging(cfg: Config, **_: Any) -> logging.Logger:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("asyncari").setLevel(logging.INFO)
+    logging.getLogger("ari").setLevel(logging.INFO)
 
     return logging.getLogger("openivr")
 

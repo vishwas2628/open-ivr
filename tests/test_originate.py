@@ -1,6 +1,6 @@
 """``dial.mode: originate`` - originate, bridge, tear down.
 
-The fakes below mimic the parts of ``asyncari.Client`` the module touches:
+The fakes below mimic the parts of ``ari.Client`` the module touches:
 ``channels.originate``, ``bridges.create`` and the *listener* context manager
 that ``on_channel_event`` returns (which only registers on ``__aenter__``).
 """
@@ -12,7 +12,7 @@ from typing import Any
 import anyio
 import pytest
 
-from openivr.ari.originate import DIALED_ARG, originate_and_bridge
+from openivr.core.originate import DIALED_ARG, originate_and_bridge
 
 pytestmark = pytest.mark.anyio
 
